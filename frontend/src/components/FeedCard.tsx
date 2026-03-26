@@ -1,5 +1,6 @@
 import { fallbackInitialsFromChannelType } from "../config/channels";
 import type { MessageRow } from "../hooks/useFeed";
+import { telegramMessageUrl } from "../lib/telegramMessageUrl";
 import { formatRelative } from "../util/formatRelative";
 import { LinkPreviewCard } from "./LinkPreviewCard";
 import { ScorePill } from "./ScorePill";
@@ -7,6 +8,9 @@ import { ScorePill } from "./ScorePill";
 export function FeedCard({ msg }: { msg: MessageRow }) {
   const avatar = msg.channels?.avatar_url;
   const type = msg.channel_type;
+  const telegramHref = telegramMessageUrl(msg.channel_id, msg.external_id);
+  const channelTitle = msg.channel_name ?? msg.channels?.display_name ?? null;
+  const showNameSubtext = Boolean(channelTitle && channelTitle !== msg.channel_id);
 
   return (
     <article className="feed-card">
@@ -25,9 +29,26 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
             {fallbackInitialsFromChannelType(type)}
           </span>
         )}
-        <span className="channel-badge">{msg.channel_name ?? msg.channel_id}</span>
+        <div className="feed-card__channel">
+          <span className="feed-card__channel-id">{msg.channel_id}</span>
+          {showNameSubtext ? (
+            <span className="feed-card__channel-name">{channelTitle}</span>
+          ) : null}
+        </div>
         <ScorePill score={msg.quality_score} status={msg.quality_status} />
-        <time className="feed-card__time">{formatRelative(msg.published_at)}</time>
+        <div className="feed-card__meta">
+          <time className="feed-card__time">{formatRelative(msg.published_at)}</time>
+          {telegramHref ? (
+            <a
+              className="feed-card__telegram"
+              href={telegramHref}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open in Telegram
+            </a>
+          ) : null}
+        </div>
       </header>
 
       {msg.quality_status === "low_quality" && (

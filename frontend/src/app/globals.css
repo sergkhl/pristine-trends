@@ -212,15 +212,51 @@ h1 {
   background: var(--surface-2);
 }
 
-.channel-badge {
-  font-weight: 600;
+.feed-card__channel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.feed-card__channel-id {
+  font-weight: 700;
   font-size: 0.9rem;
+  line-height: 1.25;
+}
+
+.feed-card__channel-name {
+  font-size: 0.78rem;
+  line-height: 1.25;
+  color: var(--text-muted);
+}
+
+.feed-card__meta {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 
 .feed-card__time {
-  margin-left: auto;
-  font-size: 0.8rem;
-  color: var(--text-muted);
+  font-size: inherit;
+  color: inherit;
+}
+
+.feed-card__telegram {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.feed-card__telegram:hover {
+  text-decoration: underline;
 }
 
 .score-pill {

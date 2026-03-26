@@ -30,6 +30,7 @@ jobs:
           HF_API_KEY: ${{ secrets.HF_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PIPELINE_DEBUG: "1"
 
   # https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages
   build:
