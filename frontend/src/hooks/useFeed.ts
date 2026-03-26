@@ -17,11 +17,13 @@ export type MessageRow = {
   audio_transcript: string | null;
   image_caption: string | null;
   link_preview: Record<string, string | null> | null;
+  media_urls: string[] | null;
   link_urls: string[] | null;
   published_at: string;
   channels: {
     avatar_url: string | null;
     display_name: string | null;
+    display_name_en: string | null;
     channel_type: ChannelSourceType | null;
   } | null;
 };
@@ -41,7 +43,7 @@ export function useFeed(panel: "ranked" | "channel", channelId?: string) {
 
     let query = supabase
       .from("messages")
-      .select("*, channels(avatar_url, display_name, channel_type)")
+      .select("*, channels(avatar_url, display_name, display_name_en, channel_type)")
       .limit(100);
 
     if (panel === "ranked") {
@@ -81,6 +83,8 @@ export function useFeed(panel: "ranked" | "channel", channelId?: string) {
               channels: {
                 avatar_url: avatarUrl,
                 display_name: row.channels?.display_name ?? prevCh?.display_name ?? null,
+                display_name_en:
+                  row.channels?.display_name_en ?? prevCh?.display_name_en ?? null,
                 channel_type:
                   row.channels?.channel_type ?? prevCh?.channel_type ?? row.channel_type,
               },

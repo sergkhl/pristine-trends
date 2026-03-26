@@ -10,11 +10,13 @@ import {
 import {
   scoreAndTranslateBatch,
   describeImageWithGemma,
+  translateChannelTitleToEnglish,
   type GemmaTextResult,
 } from "./pipeline/gemma.js";
 import { transcribeAudio } from "./pipeline/whisper.js";
 import { scrapeOG } from "./pipeline/og.js";
 import { CHANNELS, PIPELINE_CONFIG } from "./config/channels.js";
+import { uploadMessageImage } from "./storage/messageMedia.js";
 import { chunk } from "./util/chunk.js";
 
 const AVATAR_BUCKET = "channel-avatars";
@@ -120,6 +122,12 @@ async function main(): Promise<void> {
         continue;
       }
       const title = displayNameFromEntity(entity);
+      let displayNameEn: string | null = null;
+      try {
+        displayNameEn = await translateChannelTitleToEnglish(title, ch.lang);
+      } catch (err) {
+        console.warn(`[pipeline] channel title translation failed for ${ch.id}:`, err);
+      }
       const buf = await downloadChannelAvatar(tg, entity);
       const path = `${ch.id}/avatar.jpg`;
       let publicUrl: string | null = null;
@@ -133,6 +141,7 @@ async function main(): Promise<void> {
       const { error: upChannelErr } = await supabase.from("channels").upsert({
         channel_id: ch.id,
         display_name: title,
+        display_name_en: displayNameEn,
         channel_type: ch.type,
         avatar_url: publicUrl,
         updated_at: new Date().toISOString(),
@@ -206,10 +215,13 @@ async function main(): Promise<void> {
   const enriched: MessageInsert[] = await Promise.all(
     fresh.map(async (msg) => {
       const ai = aiResults.get(msg.externalId);
-      const [audioText, imageCaption, linkPreview] = await Promise.all([
+      const [audioText, imageCaption, linkPreview, mediaPublicUrl] = await Promise.all([
         msg.audioBuffer ? transcribeAudio(msg.audioBuffer) : Promise.resolve(null),
         msg.mediaBuffers[0] ? describeImageWithGemma(msg.mediaBuffers[0]) : Promise.resolve(null),
         msg.linkUrls[0] ? scrapeOG(msg.linkUrls[0]) : Promise.resolve(null),
+        msg.mediaBuffers[0]
+          ? uploadMessageImage(supabase, msg.channelId, msg.externalId, msg.mediaBuffers[0])
+          : Promise.resolve(null),
       ]);
 
       const score = ai?.score ?? null;
@@ -228,7 +240,7 @@ async function main(): Promise<void> {
         audio_transcript: audioText,
         image_caption: imageCaption || null,
         link_preview: linkPreview,
-        media_urls: [] as string[],
+        media_urls: mediaPublicUrl ? [mediaPublicUrl] : [],
         link_urls: msg.linkUrls,
         published_at: msg.publishedAt,
       };

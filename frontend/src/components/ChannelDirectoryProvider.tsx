@@ -12,6 +12,7 @@ import { formatSupabaseQueryError, getSupabase, isSupabaseConfigured } from "@/l
 
 export type ChannelDirectoryRow = {
   display_name: string | null;
+  display_name_en: string | null;
   avatar_url: string | null;
   channel_type: ChannelSourceType | null;
 };
@@ -38,7 +39,7 @@ export function ChannelDirectoryProvider({ children }: { children: ReactNode }) 
     const supabase = getSupabase();
     void supabase
       .from("channels")
-      .select("channel_id, display_name, avatar_url, channel_type")
+      .select("channel_id, display_name, display_name_en, avatar_url, channel_type")
       .then(({ data, error }) => {
         if (error) {
           console.error("[ChannelDirectoryProvider]", formatSupabaseQueryError(error));
@@ -49,11 +50,13 @@ export function ChannelDirectoryProvider({ children }: { children: ReactNode }) 
           const row = r as {
             channel_id: string;
             display_name: string | null;
+            display_name_en: string | null;
             avatar_url: string | null;
             channel_type: string | null;
           };
           m[row.channel_id] = {
             display_name: row.display_name,
+            display_name_en: row.display_name_en,
             avatar_url: row.avatar_url,
             channel_type: row.channel_type as ChannelSourceType | null,
           };

@@ -3,6 +3,7 @@
 create table channels (
   channel_id    text primary key,
   display_name  text,
+  display_name_en text,
   channel_type  text not null check (channel_type in ('public', 'private', 'group')),
   avatar_url    text,
   ingest_cursor_published_at timestamptz,
@@ -20,6 +21,14 @@ on conflict (id) do update set public = excluded.public;
 create policy "public read channel-avatars"
 on storage.objects for select
 using (bucket_id = 'channel-avatars');
+
+insert into storage.buckets (id, name, public)
+values ('message-media', 'message-media', true)
+on conflict (id) do update set public = excluded.public;
+
+create policy "public read message-media"
+on storage.objects for select
+using (bucket_id = 'message-media');
 
 -- messages
 create table messages (

@@ -5,3 +5,4 @@ frontend/node_modules/
 *.log
 .DS_Store
 .env
+.cursor/settings.json

@@ -18,7 +18,7 @@ export function ChannelSelector({
     <div className="channel-selector" role="tablist" aria-label="Channels">
       {channels.map((ch) => {
         const row = directory[ch.id];
-        const label = row?.display_name ?? ch.id;
+        const label = row?.display_name_en ?? row?.display_name ?? ch.id;
         return (
           <Link
             key={ch.id}

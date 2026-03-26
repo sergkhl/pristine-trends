@@ -140,6 +140,25 @@ function normalizeDownload(data: string | Buffer | Uint8Array): Buffer {
   return Buffer.from(data);
 }
 
+/** Re-fetch a single channel post and download its first photo, if any (for backfill uploads). */
+export async function downloadPhotoBufferForMessage(
+  client: TelegramClient,
+  channelId: string,
+  messageId: number
+): Promise<Buffer | null> {
+  try {
+    const messages = await client.getMessages(channelId, { ids: [messageId] });
+    const list = [...messages];
+    const raw = list[0];
+    if (raw == null) return null;
+    const msg = raw as unknown as GramJsMessage;
+    const bufs = await extractImages(client, msg);
+    return bufs[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function extractLinks(msg: GramJsMessage): string[] {
   const links: string[] = [];
   const text = msg.message ?? "";

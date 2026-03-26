@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
+    "upload-messages": "npx tsx scripts/upload-messages.ts",
     "gen-session": "npx tsx scripts/gen-session.ts"
   },
   "dependencies": {

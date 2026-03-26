@@ -1,4 +1,4 @@
-import { PIPELINE_CONFIG } from "../config/channels.js";
+import { PIPELINE_CONFIG, type ChannelConfig } from "../config/channels.js";
 import { isPipelineDebug } from "../util/pipelineDebug.js";
 
 const MAX_RETRIES = 4;
@@ -199,4 +199,49 @@ export async function describeImageWithGemma(
     head: text.slice(0, 200),
   });
   return text;
+}
+
+/** Returns null on API/parse failure or empty model output (caller should fall back to `display_name`). */
+export async function translateChannelTitleToEnglish(
+  title: string,
+  sourceLang: ChannelConfig["lang"]
+): Promise<string | null> {
+  const trimmed = title.trim();
+  if (!trimmed) return null;
+
+  const langHint =
+    sourceLang === "ru"
+      ? "Russian"
+      : sourceLang === "zh"
+        ? "Chinese"
+        : "possibly mixed languages (e.g. Russian, Chinese, English)";
+
+  const prompt = `Translate this Telegram channel title into natural, concise English suitable for a UI tab label.
+Source language hint: ${langHint}. If the title is already clear English, return it unchanged (adjust capitalization only if needed).
+Return ONLY the translated title as plain text, one line, no quotation marks, no explanation.
+
+Title: ${trimmed}`;
+
+  const t0 = performance.now();
+  dlog("channel_title.start", { sourceLang, chars: trimmed.length });
+
+  const res = await fetchGemma({
+    contents: [{ parts: [{ text: prompt }] }],
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    dlog("channel_title.http_error", { status: res.status, bodyPreview: errText.slice(0, 200) });
+    console.warn(`[Gemma] channel title HTTP ${res.status}`, errText.slice(0, 160));
+    return null;
+  }
+  const data = await res.json();
+  const raw = extractTextFromGemmaJson(data)?.trim() ?? "";
+  if (!raw) {
+    dlog("channel_title.empty", { ms: Math.round(performance.now() - t0) });
+    console.warn("[Gemma] Empty channel title translation");
+    return null;
+  }
+  const oneLine = raw.split(/\r?\n/)[0]!.replace(/^["']|["']$/g, "").trim();
+  dlog("channel_title.done", { ms: Math.round(performance.now() - t0), outChars: oneLine.length });
+  return oneLine || null;
 }
