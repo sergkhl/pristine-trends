@@ -1,0 +1,1 @@
+(globalThis.TURBOPACK||(globalThis.TURBOPACK=[])).push(["object"==typeof document?document.currentScript:void 0,50912,e=>{"use strict";var t=e.i(48277),c=e.i(30668),i=e.i(96086);e.s(["default",0,function(){let e=(0,i.useRouter)();return(0,c.useEffect)(()=>{e.replace("/ranked/")},[e]),(0,t.jsx)("p",{className:"panel-empty",children:"Loading…"})}])}]);

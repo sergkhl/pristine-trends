@@ -1,0 +1,6 @@
+1:"$Sreact.fragment"
+2:I[61499,["/pristine-trends/_next/static/chunks/12qrwnkxw6f28.js","/pristine-trends/_next/static/chunks/10pe.e_a_kupo.js","/pristine-trends/_next/static/chunks/0nz2qlxv3r.27.js","/pristine-trends/_next/static/chunks/0gcbv_xsiymc_.js"],"ChannelPageClient"]
+3:I[64381,["/pristine-trends/_next/static/chunks/12qrwnkxw6f28.js","/pristine-trends/_next/static/chunks/10pe.e_a_kupo.js","/pristine-trends/_next/static/chunks/0nz2qlxv3r.27.js"],"OutletBoundary"]
+4:"$Sreact.suspense"
+0:{"rsc":["$","$1","c",{"children":[["$","$L2",null,{"channelId":"@denissexy"}],[["$","script","script-0",{"src":"/pristine-trends/_next/static/chunks/0gcbv_xsiymc_.js","async":true}]],["$","$L3",null,{"children":["$","$4",null,{"name":"Next.MetadataOutlet","children":"$@5"}]}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"SLgqFjf1ggq_Qio5eiaPY"}
+5:null
