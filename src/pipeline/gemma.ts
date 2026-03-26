@@ -1,0 +1,202 @@
+import { PIPELINE_CONFIG } from "../config/channels.js";
+import { isPipelineDebug } from "../util/pipelineDebug.js";
+
+const MAX_RETRIES = 4;
+const BASE_DELAY_MS = 2000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function dlog(msg: string, detail?: Record<string, unknown>): void {
+  if (!isPipelineDebug()) return;
+  const tail = detail ? ` ${JSON.stringify(detail)}` : "";
+  console.debug(`[Gemma] ${msg}${tail}`);
+}
+
+function gemmaEndpoint(): string {
+  const key = process.env.GOOGLE_AI_KEY;
+  if (!key) throw new Error("GOOGLE_AI_KEY is not set");
+  return `https://generativelanguage.googleapis.com/v1beta/models/${PIPELINE_CONFIG.GEMMA_MODEL}:generateContent?key=${key}`;
+}
+
+async function fetchGemma(body: object): Promise<Response> {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const res = await fetch(gemmaEndpoint(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
+      const delay = BASE_DELAY_MS * 2 ** attempt;
+      console.warn(`[Gemma] ${res.status}, retry in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      await sleep(delay);
+      continue;
+    }
+    return res;
+  }
+  throw new Error("Gemma fetch exhausted retries");
+}
+
+export type GemmaTextResult = {
+  id: string;
+  score: number;
+  reason: string;
+  translatedText: string;
+};
+
+function extractTextFromGemmaJson(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as {
+    candidates?: Array<{
+      content?: { parts?: Array<{ text?: string }> };
+    }>;
+  };
+  const parts = d.candidates?.[0]?.content?.parts;
+  if (!parts?.length) return null;
+  return parts.map((p) => p.text ?? "").join("").trim() || null;
+}
+
+function parseGemmaBatchJson(text: string): GemmaTextResult[] {
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    dlog("batch.parse_error", { cleanedPreview: cleaned.slice(0, 400) });
+    console.warn("[Gemma] Failed to parse JSON batch response");
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: GemmaTextResult[] = [];
+  for (const raw of parsed) {
+    if (!raw || typeof raw !== "object") continue;
+    const o = raw as Record<string, unknown>;
+    const id = typeof o.id === "string" ? o.id : null;
+    if (!id) continue;
+    const score = typeof o.score === "number" ? o.score : Number(o.score);
+    const reason = typeof o.reason === "string" ? o.reason : "";
+    const translatedText =
+      typeof o.en === "string"
+        ? o.en
+        : typeof o.translatedText === "string"
+          ? o.translatedText
+          : "";
+    out.push({
+      id,
+      score: Number.isFinite(score) ? Math.min(10, Math.max(0, score)) : 0,
+      reason,
+      translatedText,
+    });
+  }
+  return out;
+}
+
+export async function scoreAndTranslateBatch(
+  messages: { id: string; text: string; sourceLang: string }[]
+): Promise<GemmaTextResult[]> {
+  if (messages.length === 0) return [];
+
+  const t0 = performance.now();
+  dlog("batch.start", {
+    model: PIPELINE_CONFIG.GEMMA_MODEL,
+    count: messages.length,
+    ids: messages.map((m) => m.id),
+    textChars: messages.reduce((n, m) => n + (m.text?.length ?? 0), 0),
+    langs: [...new Set(messages.map((m) => m.sourceLang))],
+  });
+
+  const prompt = `
+You are a multilingual news quality evaluator.
+Return ONLY a JSON array (no markdown, no preamble) with one object per message in the SAME order.
+Schema per object: { "id": "<id>", "score": 0-10, "reason": "<15 words max>", "en": "<English translation>" }
+
+Scoring rubric:
+8-10  Original reporting, breaking news, primary source data
+5-7   Useful analysis, credible repost with added context
+2-4   Low-effort aggregation, unverified rumour
+0-1   Spam, pure advertising, meaningless content
+
+Messages:
+${messages.map((m) => `[id:${m.id}] [lang:${m.sourceLang}]\n${m.text ?? "(no text)"}`).join("\n---\n")}
+`;
+
+  const res = await fetchGemma({
+    contents: [{ parts: [{ text: prompt }] }],
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    dlog("batch.http_error", { status: res.status, bodyPreview: errText.slice(0, 300) });
+    console.warn(`[Gemma] batch HTTP ${res.status}`, errText.slice(0, 200));
+    return messages.map((m) => ({
+      id: m.id,
+      score: 0,
+      reason: "API error",
+      translatedText: m.text,
+    }));
+  }
+  const data = await res.json();
+  const rawText = extractTextFromGemmaJson(data);
+  if (!rawText) {
+    dlog("batch.empty_candidates", {
+      ms: Math.round(performance.now() - t0),
+      responseKeys: data && typeof data === "object" ? Object.keys(data as object) : [],
+    });
+    console.warn("[Gemma] Empty candidates in batch response");
+    return messages.map((m) => ({
+      id: m.id,
+      score: 0,
+      reason: "Empty model response",
+      translatedText: m.text,
+    }));
+  }
+  dlog("batch.raw_preview", { chars: rawText.length, head: rawText.slice(0, 240) });
+  const parsed = parseGemmaBatchJson(rawText);
+  dlog("batch.done", {
+    ms: Math.round(performance.now() - t0),
+    parsedCount: parsed.length,
+    scores: parsed.map((r) => ({ id: r.id, score: r.score })),
+  });
+  return parsed;
+}
+
+export async function describeImageWithGemma(
+  imageBuffer: Buffer,
+  mimeType: "image/jpeg" | "image/png" | "image/webp" = "image/jpeg"
+): Promise<string> {
+  const t0 = performance.now();
+  dlog("vision.start", { mimeType, bytes: imageBuffer.length });
+
+  const prompt =
+    "Describe this image for a news feed: main subject, any visible text (OCR), and credibility cues. " +
+    "Answer in one short English paragraph, no markdown.";
+
+  const res = await fetchGemma({
+    contents: [
+      {
+        parts: [
+          { text: prompt },
+          {
+            inline_data: {
+              mime_type: mimeType,
+              data: imageBuffer.toString("base64"),
+            },
+          },
+        ],
+      },
+    ],
+  });
+  if (!res.ok) {
+    dlog("vision.http_error", { status: res.status, ms: Math.round(performance.now() - t0) });
+    console.warn(`[Gemma] vision HTTP ${res.status}`);
+    return "";
+  }
+  const data = await res.json();
+  const text = extractTextFromGemmaJson(data) ?? "";
+  dlog("vision.done", {
+    ms: Math.round(performance.now() - t0),
+    outChars: text.length,
+    head: text.slice(0, 200),
+  });
+  return text;
+}
