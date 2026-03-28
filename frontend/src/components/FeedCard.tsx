@@ -1,6 +1,16 @@
 "use client";
 
+import { WarningCircle } from "@phosphor-icons/react";
 import { useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+} from "@/components/ui/card";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { fallbackInitialsFromChannelType } from "../config/channels";
 import type { MessageRow } from "../hooks/useFeed";
 import { telegramMessageUrl } from "../lib/telegramMessageUrl";
@@ -44,34 +54,26 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
   const plainLinks = hasPreview ? links.slice(1) : links;
 
   return (
-    <article className="feed-card">
-      <header className="feed-card__header">
-        {avatar ? (
-          <img
-            className="channel-avatar"
-            src={avatar}
-            alt=""
-            width={32}
-            height={32}
-            decoding="async"
-          />
-        ) : (
-          <span className="channel-avatar-fallback" title={type}>
+    <Card>
+      <CardHeader className="flex flex-row flex-wrap items-center gap-2 border-b border-border pb-4">
+        <Avatar className="size-8">
+          {avatar ? <AvatarImage src={avatar} alt="" /> : null}
+          <AvatarFallback className="text-[0.7rem] font-bold">
             {fallbackInitialsFromChannelType(type)}
-          </span>
-        )}
-        <div className="feed-card__channel">
-          <span className="feed-card__channel-id">{msg.channel_id}</span>
+          </AvatarFallback>
+        </Avatar>
+        <div className="flex min-w-0 flex-col items-start gap-0.5">
+          <span className="text-sm font-bold">{msg.channel_id}</span>
           {showNameSubtext ? (
-            <span className="feed-card__channel-name">{channelTitle}</span>
+            <span className="text-muted-foreground text-xs">{channelTitle}</span>
           ) : null}
         </div>
         <ScorePill score={msg.quality_score} status={msg.quality_status} />
-        <div className="feed-card__meta">
-          <time className="feed-card__time">{formatRelative(msg.published_at)}</time>
+        <div className="ml-auto flex flex-row flex-wrap items-center justify-end gap-2 text-muted-foreground text-xs">
+          <time>{formatRelative(msg.published_at)}</time>
           {telegramHref ? (
             <a
-              className="feed-card__telegram"
+              className="text-primary font-medium whitespace-nowrap underline-offset-4 hover:underline"
               href={telegramHref}
               target="_blank"
               rel="noopener noreferrer"
@@ -80,65 +82,81 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
             </a>
           ) : null}
         </div>
-      </header>
+      </CardHeader>
 
-      {msg.quality_status === "low_quality" && (
-        <div className="warning-banner">Low quality · {msg.quality_reason}</div>
-      )}
+      <CardContent className="flex flex-col gap-3">
+        {msg.quality_status === "low_quality" ? (
+          <Alert variant="destructive">
+            <WarningCircle />
+            <AlertTitle>Low quality</AlertTitle>
+            <AlertDescription>{msg.quality_reason}</AlertDescription>
+          </Alert>
+        ) : null}
 
-      <p className="feed-card__body">{bodyText}</p>
+        <p className="m-0 whitespace-pre-wrap text-xs leading-relaxed">{bodyText}</p>
 
-      {msg.media_urls?.[0] ? (
-        <figure className="feed-card__media">
-          <img
-            src={msg.media_urls[0]}
-            alt=""
-            loading="lazy"
-            decoding="async"
-          />
-          {msg.image_caption ? (
-            <figcaption className="media-caption">{msg.image_caption}</figcaption>
-          ) : null}
-        </figure>
-      ) : msg.image_caption ? (
-        <p className="media-caption">{msg.image_caption}</p>
-      ) : null}
+        {msg.media_urls?.[0] ? (
+          <figure className="m-0">
+            <img
+              src={msg.media_urls[0]}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="block max-h-[min(70vh,32rem)] max-w-full rounded-none bg-muted"
+            />
+            {msg.image_caption ? (
+              <figcaption className="mt-3 text-muted-foreground text-xs italic">
+                {msg.image_caption}
+              </figcaption>
+            ) : null}
+          </figure>
+        ) : msg.image_caption ? (
+          <p className="m-0 text-muted-foreground text-xs italic">{msg.image_caption}</p>
+        ) : null}
 
-      {hasPreview && firstLink ? (
-        <LinkPreviewCard preview={msg.link_preview} href={firstLink} />
-      ) : null}
-      {plainLinks.length > 0 ? (
-        <ul className="feed-card__links" aria-label="Attached links">
-          {plainLinks.map((url) => (
-            <li key={url}>
-              <a
-                className="feed-card__link"
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {linkLabel(url)}
-              </a>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+        {hasPreview && firstLink ? (
+          <LinkPreviewCard preview={msg.link_preview} href={firstLink} />
+        ) : null}
+        {plainLinks.length > 0 ? (
+          <ul className="m-0 flex list-none flex-col gap-1.5 p-0" aria-label="Attached links">
+            {plainLinks.map((url) => (
+              <li key={url}>
+                <a
+                  className="text-primary text-xs font-medium break-all underline-offset-4 hover:underline"
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {linkLabel(url)}
+                </a>
+              </li>
+            ))}
+          </ul>
+        ) : null}
 
-      {msg.audio_transcript ? (
-        <blockquote className="audio-transcript">{msg.audio_transcript}</blockquote>
-      ) : null}
+        {msg.audio_transcript ? (
+          <blockquote className="m-0 border-primary border-l-[3px] bg-muted px-3 py-2 text-xs">
+            {msg.audio_transcript}
+          </blockquote>
+        ) : null}
+      </CardContent>
 
-      <footer className="feed-card__footer">
-        <button
-          type="button"
-          className={`feed-card__lang-switch ${lang === "english" ? "is-english" : ""}`}
-          aria-pressed={lang === "english"}
-          aria-label={lang === "english" ? "Show Original" : "Show English"}
-          onClick={() => setLang((l) => (l === "english" ? "original" : "english"))}
+      <CardFooter className="justify-end">
+        <ToggleGroup
+          type="single"
+          value={lang}
+          onValueChange={(v) => {
+            if (v === "english" || v === "original") setLang(v);
+          }}
+          variant="outline"
+          size="sm"
+          spacing={0}
+          aria-label="Message language"
         >
-          {lang === "english" ? "Show Original" : "Show English"}
-        </button>
-      </footer>
-    </article>
+          <ToggleGroupItem value="english">English</ToggleGroupItem>
+          <ToggleGroupItem value="original">Original</ToggleGroupItem>
+        </ToggleGroup>
+      </CardFooter>
+    </Card>
   );
 }

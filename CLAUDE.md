@@ -1,5 +1,8 @@
 # Agent overrides
 
+## UI (shadcn/ui)
+**UI (mandatory):** When working on UI — components, layouts, styling, forms, or shadcn/ui — you **must** read and follow **`.claude/skills/shadcn/SKILL.md`** before implementing (add/search/fix components, registries, `components.json`, presets).
+
 ## Database migrations
 
 - **`supabase/migrations/001_schema.sql`** is the **initial, fully complete** schema for a fresh database. Treat it as the canonical “from zero” definition: new tables, columns, indexes, and constraints that belong in the baseline should be reflected here so a new environment matches production intent in one file.

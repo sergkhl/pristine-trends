@@ -1,3 +1,5 @@
+import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/card";
+
 type Preview = Record<string, string | null> | null;
 
 export function LinkPreviewCard({
@@ -14,22 +16,36 @@ export function LinkPreviewCard({
   const safeHref = href?.startsWith("http") ? href : undefined;
 
   const inner = (
-    <>
-      {img ? <img className="link-preview__img" src={img} alt="" loading="lazy" /> : null}
-      <div className="link-preview__body">
-        <span className="link-preview__title">{title}</span>
-        {desc ? <span className="link-preview__desc">{desc}</span> : null}
+    <CardContent className="flex flex-row items-start gap-3 py-0">
+      {img ? (
+        <img
+          className="size-[4.5rem] shrink-0 rounded-none object-cover"
+          src={img}
+          alt=""
+          loading="lazy"
+        />
+      ) : null}
+      <div className="flex min-w-0 flex-col gap-1">
+        <CardTitle className="text-xs leading-snug">{title}</CardTitle>
+        {desc ? (
+          <CardDescription className="line-clamp-2 text-xs">{desc}</CardDescription>
+        ) : null}
       </div>
-    </>
+    </CardContent>
   );
 
   if (safeHref) {
     return (
-      <a className="link-preview" href={safeHref} target="_blank" rel="noopener noreferrer">
-        {inner}
+      <a
+        href={safeHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-inherit no-underline"
+      >
+        <Card className="bg-muted/30 py-3 transition-colors hover:bg-muted/50">{inner}</Card>
       </a>
     );
   }
 
-  return <div className="link-preview link-preview--static">{inner}</div>;
+  return <Card className="bg-muted/30 py-3">{inner}</Card>;
 }
