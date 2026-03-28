@@ -1,35 +1,16 @@
 "use client";
 
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@/components/ui/empty";
 import { useFeed } from "../hooks/useFeed";
-import { FeedCard } from "./FeedCard";
+import { InfiniteFeedList } from "./InfiniteFeedList";
 
 export function RankedPanel() {
-  const messages = useFeed("ranked");
-
-  if (messages.length === 0) {
-    return (
-      <Empty className="my-8 border-border">
-        <EmptyHeader>
-          <EmptyTitle>No messages yet</EmptyTitle>
-          <EmptyDescription>
-            Run the pipeline or check Supabase keys.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  }
+  const feed = useFeed("ranked");
 
   return (
-    <div className="flex flex-col gap-4">
-      {messages.map((msg) => (
-        <FeedCard key={msg.id} msg={msg} />
-      ))}
-    </div>
+    <InfiniteFeedList
+      {...feed}
+      emptyTitle="No messages yet"
+      emptyDescription="No messages scored above 4, or run the pipeline and check Supabase keys."
+    />
   );
 }

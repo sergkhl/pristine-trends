@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={cn("font-mono", jetbrainsMono.variable)}>
+    <html lang="en" className={cn("dark", "font-mono", jetbrainsMono.variable)}>
       <body>
         <ChannelDirectoryProvider>
           <div className="app flex flex-col">
