@@ -1,16 +1,41 @@
 "use client";
 
+import { useMemo } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  formatMinScoreParam,
+  parseRankedSearchParams,
+} from "@/lib/rankedSearchParams";
 import { useFeed } from "../hooks/useFeed";
 import { InfiniteFeedList } from "./InfiniteFeedList";
 
+function lastDaysPhrase(days: number): string {
+  if (days === 1) return "the last day";
+  return `the last ${days} days`;
+}
+
 export function RankedPanel() {
-  const feed = useFeed("ranked");
+  const searchParams = useSearchParams();
+  const spKey = searchParams.toString();
+
+  const parsed = useMemo(() => parseRankedSearchParams(new URLSearchParams(spKey)), [spKey]);
+
+  const feed = useFeed("ranked", undefined, {
+    rangeDays: parsed.rangeDays,
+    sort: parsed.sort,
+    minScore: parsed.minScore,
+  });
+
+  const emptyDescription = useMemo(() => {
+    const minLabel = formatMinScoreParam(parsed.minScore);
+    return `No messages in ${lastDaysPhrase(parsed.rangeDays)} with score at least ${minLabel}, or run the pipeline and check Supabase keys.`;
+  }, [parsed.minScore, parsed.rangeDays]);
 
   return (
     <InfiniteFeedList
       {...feed}
       emptyTitle="No messages yet"
-      emptyDescription="No messages scored above 4, or run the pipeline and check Supabase keys."
+      emptyDescription={emptyDescription}
     />
   );
 }

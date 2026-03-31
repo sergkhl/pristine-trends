@@ -1,6 +1,13 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import type { ChannelSourceType } from "../config/channels";
 import { decodeChannelRouteParam } from "../lib/channelRouteParam";
+import type { RankedFeedOptions, RankedSortKey } from "../lib/rankedSearchParams";
+import {
+  DEFAULT_RANKED_MIN_SCORE,
+  DEFAULT_RANKED_RANGE,
+  DEFAULT_RANKED_SORT,
+  RANKED_RANGE_DAYS,
+} from "../lib/rankedSearchParams";
 import { formatSupabaseQueryError, getSupabase } from "../lib/supabase";
 
 export const FEED_PAGE_SIZE = 30;
@@ -56,10 +63,25 @@ function publishedAtIdKeysetOr(publishedAt: string, id: string): string {
   return `published_at.lt.${t},and(published_at.eq.${t},id.lt.${i})`;
 }
 
+/** Keyset for `order by quality_score desc, published_at desc, id desc`. */
+function scorePublishedAtIdKeysetOr(score: number, publishedAt: string, id: string): string {
+  const s = score.toFixed(2);
+  const t = `"${publishedAt.replace(/"/g, '\\"')}"`;
+  const i = `"${id.replace(/"/g, '\\"')}"`;
+  return `quality_score.lt.${s},and(quality_score.eq.${s},published_at.lt.${t}),and(quality_score.eq.${s},published_at.eq.${t},id.lt.${i})`;
+}
+
 function comparePublishedAtIdDesc(a: MessageRow, b: MessageRow): number {
   const t = b.published_at.localeCompare(a.published_at);
   if (t !== 0) return t;
   return b.id.localeCompare(a.id);
+}
+
+function compareScorePublishedAtIdDesc(a: MessageRow, b: MessageRow): number {
+  const as = a.quality_score ?? -Infinity;
+  const bs = b.quality_score ?? -Infinity;
+  if (as !== bs) return bs - as;
+  return comparePublishedAtIdDesc(a, b);
 }
 
 function dedupeAppend(existing: MessageRow[], incoming: MessageRow[]): MessageRow[] {
@@ -73,6 +95,12 @@ function dedupeAppend(existing: MessageRow[], incoming: MessageRow[]): MessageRo
   return out;
 }
 
+const DEFAULT_RANKED_FEED: RankedFeedOptions = {
+  rangeDays: RANKED_RANGE_DAYS[DEFAULT_RANKED_RANGE],
+  sort: DEFAULT_RANKED_SORT,
+  minScore: DEFAULT_RANKED_MIN_SCORE,
+};
+
 export type UseFeedResult = {
   messages: MessageRow[];
   isInitialLoading: boolean;
@@ -82,7 +110,21 @@ export type UseFeedResult = {
   fetchNextPage: () => void;
 };
 
-export function useFeed(panel: "ranked" | "channel", channelId?: string): UseFeedResult {
+type CtxRef = {
+  panel: "ranked" | "channel";
+  resolvedChannelId: string | undefined;
+  skip: boolean;
+  rankedSort: RankedSortKey;
+  rankedMinScore: number;
+};
+
+export function useFeed(panel: "ranked", channelId: undefined, rankedOptions: RankedFeedOptions): UseFeedResult;
+export function useFeed(panel: "channel", channelId?: string, rankedOptions?: never): UseFeedResult;
+export function useFeed(
+  panel: "ranked" | "channel",
+  channelId?: string,
+  rankedOptions?: RankedFeedOptions
+): UseFeedResult {
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
@@ -93,23 +135,36 @@ export function useFeed(panel: "ranked" | "channel", channelId?: string): UseFee
   const resolvedChannelId =
     panel === "channel" && channelId ? decodeChannelRouteParam(channelId) : channelId;
 
+  const ranked: RankedFeedOptions =
+    panel === "ranked" ? (rankedOptions ?? DEFAULT_RANKED_FEED) : DEFAULT_RANKED_FEED;
+
   const fetchingMoreRef = useRef(false);
   const messagesRef = useRef<MessageRow[]>([]);
   const hasMoreRef = useRef(true);
-  const ctxRef = useRef({
+  const cutoffIsoRef = useRef<string>("");
+  const ctxRef = useRef<CtxRef>({
     panel: panel as "ranked" | "channel",
     resolvedChannelId: resolvedChannelId as string | undefined,
     skip,
+    rankedSort: ranked.sort,
+    rankedMinScore: ranked.minScore,
   });
 
   useEffect(() => {
     messagesRef.current = messages;
     hasMoreRef.current = hasMore;
-    ctxRef.current = { panel, resolvedChannelId, skip };
-  }, [messages, hasMore, panel, resolvedChannelId, skip]);
+    ctxRef.current = {
+      panel,
+      resolvedChannelId,
+      skip,
+      rankedSort: ranked.sort,
+      rankedMinScore: ranked.minScore,
+    };
+  }, [messages, hasMore, panel, resolvedChannelId, skip, ranked.sort, ranked.minScore]);
 
   const fetchNextPage = useCallback(() => {
-    const { panel: p, resolvedChannelId: chId, skip: sk } = ctxRef.current;
+    const { panel: p, resolvedChannelId: chId, skip: sk, rankedSort, rankedMinScore } =
+      ctxRef.current;
     if (sk || !hasMoreRef.current || fetchingMoreRef.current) return;
     const list = messagesRef.current;
     if (list.length === 0) return;
@@ -125,11 +180,30 @@ export function useFeed(panel: "ranked" | "channel", channelId?: string): UseFee
       .limit(FEED_PAGE_SIZE);
 
     if (p === "ranked") {
+      const cutoff = cutoffIsoRef.current;
       query = query
-        .gt("quality_score", 4)
-        .or(publishedAtIdKeysetOr(last.published_at, last.id))
-        .order("published_at", { ascending: false })
-        .order("id", { ascending: false });
+        .gte("published_at", cutoff)
+        .not("quality_score", "is", null)
+        .gte("quality_score", rankedMinScore);
+
+      const qs = last.quality_score;
+      if (rankedSort === "score") {
+        if (qs == null) {
+          fetchingMoreRef.current = false;
+          setIsFetchingMore(false);
+          return;
+        }
+        query = query
+          .or(scorePublishedAtIdKeysetOr(qs, last.published_at, last.id))
+          .order("quality_score", { ascending: false })
+          .order("published_at", { ascending: false })
+          .order("id", { ascending: false });
+      } else {
+        query = query
+          .or(publishedAtIdKeysetOr(last.published_at, last.id))
+          .order("published_at", { ascending: false })
+          .order("id", { ascending: false });
+      }
     } else {
       query = query
         .eq("channel_id", chId!)
@@ -161,6 +235,9 @@ export function useFeed(panel: "ranked" | "channel", channelId?: string): UseFee
     const supabase = getSupabase();
     const channelFilterId = panel === "channel" ? resolvedChannelId! : null;
 
+    const cutoffIso = new Date(Date.now() - ranked.rangeDays * 86_400_000).toISOString();
+    cutoffIsoRef.current = cutoffIso;
+
     startTransition(() => {
       setMessages([]);
       setIsInitialLoading(true);
@@ -178,9 +255,18 @@ export function useFeed(panel: "ranked" | "channel", channelId?: string): UseFee
 
     if (panel === "ranked") {
       query = query
-        .gt("quality_score", 4)
-        .order("published_at", { ascending: false })
-        .order("id", { ascending: false });
+        .gte("published_at", cutoffIso)
+        .not("quality_score", "is", null)
+        .gte("quality_score", ranked.minScore);
+
+      if (ranked.sort === "score") {
+        query = query
+          .order("quality_score", { ascending: false })
+          .order("published_at", { ascending: false })
+          .order("id", { ascending: false });
+      } else {
+        query = query.order("published_at", { ascending: false }).order("id", { ascending: false });
+      }
     } else {
       query = query
         .eq("channel_id", channelFilterId!)
@@ -207,24 +293,32 @@ export function useFeed(panel: "ranked" | "channel", channelId?: string): UseFee
       }
     });
 
+    const subKey =
+      panel === "ranked"
+        ? `feed-ranked-${ranked.rangeDays}-${ranked.sort}-${ranked.minScore}`
+        : `feed-channel-${channelFilterId}`;
+
     const sub = supabase
-      .channel(`feed-${panel}-${panel === "ranked" ? "ranked" : channelFilterId}`)
+      .channel(subKey)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
-        (p) => {
-          const row = p.new as MessageRow;
+        (payload) => {
+          const row = payload.new as MessageRow;
           if (panel === "channel" && row.channel_id !== channelFilterId) return;
           if (panel === "ranked") {
             const qs = row.quality_score;
-            if (qs == null || qs <= 4) return;
+            if (qs == null || qs < ranked.minScore) return;
+            if (row.published_at < cutoffIso) return;
           }
 
           setMessages((prev) => {
             if (prev.some((m) => m.id === row.id)) return prev;
             const merged = mergeChannels(row, prev);
             if (panel === "ranked") {
-              return [...prev, merged].sort(comparePublishedAtIdDesc);
+              const cmp =
+                ranked.sort === "score" ? compareScorePublishedAtIdDesc : comparePublishedAtIdDesc;
+              return [...prev, merged].sort(cmp);
             }
             return [merged, ...prev];
           });
@@ -236,7 +330,7 @@ export function useFeed(panel: "ranked" | "channel", channelId?: string): UseFee
       cancelled = true;
       void sub.unsubscribe();
     };
-  }, [panel, channelId, skip, resolvedChannelId]);
+  }, [panel, channelId, skip, resolvedChannelId, ranked.rangeDays, ranked.sort, ranked.minScore]);
 
   if (skip) {
     return {

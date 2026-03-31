@@ -3,11 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3010",
     "build": "NODE_ENV=production next build",
     "start": "next start",
     "lint": "eslint .",
-    "serve": "npx serve@14.2.6 out"
+    "serve": "npx serve@14.2.6 -l 3010 out"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
