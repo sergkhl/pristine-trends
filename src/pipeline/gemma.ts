@@ -245,3 +245,41 @@ Title: ${trimmed}`;
   dlog("channel_title.done", { ms: Math.round(performance.now() - t0), outChars: oneLine.length });
   return oneLine || null;
 }
+
+/** Summarize extracted page text for the feed; returns null on API/parse failure or empty output. */
+export async function summarizeLinkContent(url: string, extractedText: string): Promise<string | null> {
+  const trimmed = extractedText.trim();
+  if (!trimmed) return null;
+
+  const prompt = `You summarize web page content for a news-style feed.
+
+Task: Write 2–4 short English sentences capturing the main factual takeaway. No markdown, no bullet list, no preamble.
+
+Page URL (context only): ${url}
+
+Page content:
+${trimmed}`;
+
+  const t0 = performance.now();
+  dlog("link_summary.start", { urlChars: url.length, contentChars: trimmed.length });
+
+  const res = await fetchGemma({
+    contents: [{ parts: [{ text: prompt }] }],
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    dlog("link_summary.http_error", { status: res.status, bodyPreview: errText.slice(0, 200) });
+    console.warn(`[Gemma] link summary HTTP ${res.status}`, errText.slice(0, 160));
+    return null;
+  }
+  const data = await res.json();
+  const raw = extractTextFromGemmaJson(data)?.trim() ?? "";
+  if (!raw) {
+    dlog("link_summary.empty", { ms: Math.round(performance.now() - t0) });
+    console.warn("[Gemma] Empty link summary response");
+    return null;
+  }
+  const oneBlock = raw.replace(/\s+/g, " ").trim();
+  dlog("link_summary.done", { ms: Math.round(performance.now() - t0), outChars: oneBlock.length });
+  return oneBlock || null;
+}

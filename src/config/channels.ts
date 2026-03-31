@@ -32,6 +32,21 @@ function envNumber(name: string, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
+function envTavilyExtractDepth(): "basic" | "advanced" {
+  const raw = typeof process !== "undefined" ? process.env?.TAVILY_EXTRACT_DEPTH : undefined;
+  const v = typeof raw === "string" ? raw.toLowerCase().trim() : "";
+  if (v === "advanced") return "advanced";
+  return "basic";
+}
+
+/** When set, only messages with quality_score >= this value get link summarization. */
+function envLinkSummaryMinScore(): number | null {
+  const v = typeof process !== "undefined" ? process.env?.LINK_SUMMARY_MIN_SCORE : undefined;
+  if (v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 export const PIPELINE_CONFIG = {
   QUALITY_WARN_THRESHOLD: 4.0,
   BATCH_SIZE: 5,
@@ -41,4 +56,12 @@ export const PIPELINE_CONFIG = {
   DEFAULT_LOOKBACK_HOURS: envNumber("PIPELINE_DEFAULT_LOOKBACK_HOURS", 24),
   /** Re-fetch this much before stored cursor to tolerate skew and ordering. */
   CURSOR_OVERLAP_MINUTES: envNumber("PIPELINE_CURSOR_OVERLAP_MINUTES", 15),
+  /** Tavily Extract depth; override with TAVILY_EXTRACT_DEPTH=basic|advanced */
+  TAVILY_EXTRACT_DEPTH: envTavilyExtractDepth(),
+  /** Max characters of extracted page text sent to Gemma for summarization. */
+  LINK_SUMMARY_MAX_EXTRACT_CHARS: envNumber("LINK_SUMMARY_MAX_EXTRACT_CHARS", 12_000),
+  /** Tavily Extract timeout in seconds (1–60 per API). */
+  TAVILY_EXTRACT_TIMEOUT_SEC: envNumber("TAVILY_EXTRACT_TIMEOUT_SEC", 25),
+  /** Optional minimum quality_score for link summarization (unset = all messages with links). */
+  LINK_SUMMARY_MIN_SCORE: envLinkSummaryMinScore(),
 } as const;

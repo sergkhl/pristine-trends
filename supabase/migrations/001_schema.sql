@@ -47,6 +47,8 @@ create table messages (
   link_preview     jsonb,
   media_urls       text[] default '{}',
   link_urls        text[] default '{}',
+  link_summary     text,
+  link_summary_status text,
   published_at     timestamptz not null,
   created_at       timestamptz default now()
 );

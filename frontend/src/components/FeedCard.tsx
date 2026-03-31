@@ -51,7 +51,9 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
   const links = msg.link_urls ?? [];
   const firstLink = links[0];
   const hasPreview = Boolean(msg.link_preview);
-  const plainLinks = hasPreview ? links.slice(1) : links;
+  const hasSummary = Boolean(msg.link_summary?.trim());
+  const showLinkCard = Boolean(firstLink && (hasPreview || hasSummary));
+  const plainLinks = showLinkCard ? links.slice(1) : links;
 
   return (
     <Card>
@@ -114,8 +116,12 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
           <p className="m-0 text-muted-foreground text-xs italic">{msg.image_caption}</p>
         ) : null}
 
-        {hasPreview && firstLink ? (
-          <LinkPreviewCard preview={msg.link_preview} href={firstLink} />
+        {showLinkCard && firstLink ? (
+          <LinkPreviewCard
+            preview={hasPreview ? msg.link_preview : null}
+            href={firstLink}
+            summary={msg.link_summary}
+          />
         ) : null}
         {plainLinks.length > 0 ? (
           <ul className="m-0 flex list-none flex-col gap-1.5 p-0" aria-label="Attached links">
