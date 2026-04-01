@@ -10,8 +10,10 @@
  */
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
+import { PIPELINE_CONFIG } from "../src/config/channels.js";
 import { linkSummaryForFirstUrl } from "../src/pipeline/linkSummary.js";
 import { normalizeLinkUrls } from "../src/util/normalizeLinkUrl.js";
+import { computeGlobalScore } from "../src/util/computeGlobalScore.js";
 
 function envNumber(name: string, fallback: number): number {
   const v = process.env[name];
@@ -33,7 +35,8 @@ function log(step: string, detail?: Record<string, unknown>): void {
 type Row = {
   id: string;
   link_urls: string[] | null;
-  quality_score: number | string | null;
+  text_score: number | string | null;
+  document_score: number | string | null;
 };
 
 async function main(): Promise<void> {
@@ -59,7 +62,7 @@ async function main(): Promise<void> {
 
   const { data: rows, error } = await supabase
     .from("messages")
-    .select("id, link_urls, quality_score")
+    .select("id, link_urls, text_score, document_score")
     .gte("published_at", since)
     .or("link_summary_status.is.null,link_summary_status.neq.ok")
     .order("published_at", { ascending: false })
@@ -77,21 +80,37 @@ async function main(): Promise<void> {
   for (const row of list) {
     const urls = normalizeLinkUrls(row.link_urls ?? []);
     const score =
-      row.quality_score == null
+      row.text_score == null
         ? null
-        : typeof row.quality_score === "number"
-          ? row.quality_score
-          : Number(row.quality_score);
+        : typeof row.text_score === "number"
+          ? row.text_score
+          : Number(row.text_score);
+    const textScoreNum = Number.isFinite(score as number) ? (score as number) : null;
 
-    const { link_summary, link_summary_status } = await linkSummaryForFirstUrl(
+    const docRaw =
+      row.document_score == null
+        ? null
+        : typeof row.document_score === "number"
+          ? row.document_score
+          : Number(row.document_score);
+    const docScoreNum = Number.isFinite(docRaw as number) ? (docRaw as number) : null;
+
+    const { link_summary, link_summary_status, link_score } = await linkSummaryForFirstUrl(
       urls[0],
-      Number.isFinite(score as number) ? (score as number) : null,
+      textScoreNum,
       log
     );
+
+    const globalScore = computeGlobalScore(textScoreNum, link_score, docScoreNum);
+    const belowThreshold =
+      (globalScore ?? 10) < PIPELINE_CONFIG.QUALITY_WARN_THRESHOLD;
 
     const patch = {
       link_summary,
       link_summary_status,
+      link_score,
+      global_score: globalScore,
+      quality_status: belowThreshold ? "low_quality" : "ok",
       link_urls: urls.length > 0 ? urls : row.link_urls,
     };
 

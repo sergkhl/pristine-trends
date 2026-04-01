@@ -20,9 +20,12 @@ export type MessageRow = {
   channel_type: ChannelSourceType;
   original_text: string | null;
   translated_text: string | null;
-  quality_score: number | null;
-  quality_reason: string | null;
+  text_score: number | null;
+  text_score_reason: string | null;
   quality_status: string | null;
+  global_score: number | null;
+  link_score: number | null;
+  document_score: number | null;
   audio_transcript: string | null;
   image_caption: string | null;
   link_preview: Record<string, string | null> | null;
@@ -30,6 +33,8 @@ export type MessageRow = {
   link_urls: string[] | null;
   link_summary: string | null;
   link_summary_status: string | null;
+  document_summary: string | null;
+  document_summary_status: string | null;
   comment_count: number | null;
   comment_summary: string | null;
   comment_summary_status: string | null;
@@ -68,12 +73,12 @@ function publishedAtIdKeysetOr(publishedAt: string, id: string): string {
   return `published_at.lt.${t},and(published_at.eq.${t},id.lt.${i})`;
 }
 
-/** Keyset for `order by quality_score desc, published_at desc, id desc`. */
+/** Keyset for `order by global_score desc, published_at desc, id desc`. */
 function scorePublishedAtIdKeysetOr(score: number, publishedAt: string, id: string): string {
   const s = score.toFixed(2);
   const t = `"${publishedAt.replace(/"/g, '\\"')}"`;
   const i = `"${id.replace(/"/g, '\\"')}"`;
-  return `quality_score.lt.${s},and(quality_score.eq.${s},published_at.lt.${t}),and(quality_score.eq.${s},published_at.eq.${t},id.lt.${i})`;
+  return `global_score.lt.${s},and(global_score.eq.${s},published_at.lt.${t}),and(global_score.eq.${s},published_at.eq.${t},id.lt.${i})`;
 }
 
 function comparePublishedAtIdDesc(a: MessageRow, b: MessageRow): number {
@@ -83,8 +88,8 @@ function comparePublishedAtIdDesc(a: MessageRow, b: MessageRow): number {
 }
 
 function compareScorePublishedAtIdDesc(a: MessageRow, b: MessageRow): number {
-  const as = a.quality_score ?? -Infinity;
-  const bs = b.quality_score ?? -Infinity;
+  const as = a.global_score ?? -Infinity;
+  const bs = b.global_score ?? -Infinity;
   if (as !== bs) return bs - as;
   return comparePublishedAtIdDesc(a, b);
 }
@@ -188,10 +193,10 @@ export function useFeed(
       const cutoff = cutoffIsoRef.current;
       query = query
         .gte("published_at", cutoff)
-        .not("quality_score", "is", null)
-        .gte("quality_score", rankedMinScore);
+        .not("global_score", "is", null)
+        .gte("global_score", rankedMinScore);
 
-      const qs = last.quality_score;
+      const qs = last.global_score;
       if (rankedSort === "score") {
         if (qs == null) {
           fetchingMoreRef.current = false;
@@ -200,7 +205,7 @@ export function useFeed(
         }
         query = query
           .or(scorePublishedAtIdKeysetOr(qs, last.published_at, last.id))
-          .order("quality_score", { ascending: false })
+          .order("global_score", { ascending: false })
           .order("published_at", { ascending: false })
           .order("id", { ascending: false });
       } else {
@@ -261,12 +266,12 @@ export function useFeed(
     if (panel === "ranked") {
       query = query
         .gte("published_at", cutoffIso)
-        .not("quality_score", "is", null)
-        .gte("quality_score", ranked.minScore);
+        .not("global_score", "is", null)
+        .gte("global_score", ranked.minScore);
 
       if (ranked.sort === "score") {
         query = query
-          .order("quality_score", { ascending: false })
+          .order("global_score", { ascending: false })
           .order("published_at", { ascending: false })
           .order("id", { ascending: false });
       } else {
@@ -312,7 +317,7 @@ export function useFeed(
           const row = payload.new as MessageRow;
           if (panel === "channel" && row.channel_id !== channelFilterId) return;
           if (panel === "ranked") {
-            const qs = row.quality_score;
+            const qs = row.global_score;
             if (qs == null || qs < ranked.minScore) return;
             if (row.published_at < cutoffIso) return;
           }

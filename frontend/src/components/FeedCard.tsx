@@ -20,6 +20,14 @@ import { ScorePill } from "./ScorePill";
 
 type CardLang = "original" | "english";
 
+function scoreBreakdownLine(msg: MessageRow): string | null {
+  const parts: string[] = [];
+  if (msg.text_score != null) parts.push(`T:${msg.text_score.toFixed(1)}`);
+  if (msg.link_score != null) parts.push(`L:${msg.link_score.toFixed(1)}`);
+  if (msg.document_score != null) parts.push(`D:${msg.document_score.toFixed(1)}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 function linkLabel(url: string): string {
   try {
     const u = new URL(url);
@@ -54,6 +62,7 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
   const hasSummary = Boolean(msg.link_summary?.trim());
   const showLinkCard = Boolean(firstLink && (hasPreview || hasSummary));
   const plainLinks = showLinkCard ? links.slice(1) : links;
+  const subScores = scoreBreakdownLine(msg);
 
   return (
     <Card>
@@ -70,19 +79,31 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
             <span className="text-muted-foreground text-xs">{channelTitle}</span>
           ) : null}
         </div>
-        <ScorePill score={msg.quality_score} status={msg.quality_status} />
-        <div className="ml-auto flex flex-row flex-wrap items-center justify-end gap-2 text-muted-foreground text-xs">
-          <time>{formatRelative(msg.published_at)}</time>
-          {telegramHref ? (
-            <a
-              className="text-primary font-medium whitespace-nowrap underline-offset-4 hover:underline"
-              href={telegramHref}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Open in Telegram
-            </a>
-          ) : null}
+        <div className="ml-auto flex flex-row flex-wrap items-center justify-end gap-3">
+          <div className="flex flex-col items-end gap-0.5">
+            <ScorePill score={msg.global_score} status={msg.quality_status} />
+            {subScores ? (
+              <span
+                className="text-muted-foreground text-[0.65rem] leading-none"
+                title="Sub-scores: text / link / document"
+              >
+                {subScores}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex flex-row flex-wrap items-center justify-end gap-2 text-muted-foreground text-xs">
+            <time>{formatRelative(msg.published_at)}</time>
+            {telegramHref ? (
+              <a
+                className="text-primary font-medium whitespace-nowrap underline-offset-4 hover:underline"
+                href={telegramHref}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open in Telegram
+              </a>
+            ) : null}
+          </div>
         </div>
       </CardHeader>
 
@@ -91,7 +112,7 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
           <Alert variant="destructive">
             <WarningCircle />
             <AlertTitle>Low quality</AlertTitle>
-            <AlertDescription>{msg.quality_reason}</AlertDescription>
+            <AlertDescription>{msg.text_score_reason ?? "—"}</AlertDescription>
           </Alert>
         ) : null}
 
@@ -122,6 +143,13 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
             href={firstLink}
             summary={msg.link_summary}
           />
+        ) : null}
+
+        {msg.document_summary?.trim() ? (
+          <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs">
+            <p className="m-0 mb-1 font-semibold text-muted-foreground">Attached document</p>
+            <p className="m-0 leading-relaxed">{msg.document_summary}</p>
+          </div>
         ) : null}
         {plainLinks.length > 0 ? (
           <ul className="m-0 flex list-none flex-col gap-1.5 p-0" aria-label="Attached links">

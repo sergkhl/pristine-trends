@@ -122,7 +122,7 @@ function RankedHeaderToolbarControls({ parsed, pathname }: RankedHeaderToolbarCo
         <SelectTrigger
           size="sm"
           className="min-w-0 border-border"
-          aria-label="Minimum quality score"
+          aria-label="Minimum global score"
         >
           <Star />
           <SelectValue />

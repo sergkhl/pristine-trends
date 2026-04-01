@@ -11,7 +11,19 @@ type GramJsMessage = Record<string, unknown> & {
   photo?: unknown;
   voice?: unknown;
   audio?: unknown;
-  media?: { photo?: unknown; voice?: unknown; audio?: unknown };
+  media?: {
+    className?: string;
+    photo?: unknown;
+    voice?: unknown;
+    audio?: unknown;
+    document?: GramJsDocument;
+  };
+};
+
+type GramJsDocument = {
+  className?: string;
+  mimeType?: string;
+  attributes?: Array<{ className?: string; fileName?: string }>;
 };
 
 export interface NormalizedMessage {
@@ -23,6 +35,9 @@ export interface NormalizedMessage {
   text: string | null;
   mediaBuffers: Buffer[];
   audioBuffer: Buffer | null;
+  /** First PDF document attached to the message (if any). */
+  documentBuffer: Buffer | null;
+  documentFilename: string | null;
   linkUrls: string[];
   publishedAt: string;
 }
@@ -150,6 +165,7 @@ export async function fetchSince(
 
         const mediaBuffers = await extractImages(client, msg);
         const audioBuffer = await extractAudio(client, msg);
+        const doc = await extractPdfDocument(client, msg);
 
         results.push({
           externalId: `${ch.id}_${msg.id}`,
@@ -160,6 +176,8 @@ export async function fetchSince(
           text: msg.message ?? null,
           mediaBuffers,
           audioBuffer,
+          documentBuffer: doc?.buffer ?? null,
+          documentFilename: doc?.filename ?? null,
           linkUrls: normalizeLinkUrls(extractLinks(msg)),
           publishedAt: msgDate.toISOString(),
         });
@@ -185,6 +203,32 @@ async function extractImages(
     return [normalizeDownload(buf)];
   } catch {
     return [];
+  }
+}
+
+async function extractPdfDocument(
+  client: TelegramClient,
+  msg: GramJsMessage
+): Promise<{ buffer: Buffer; filename: string } | null> {
+  try {
+    const media = msg.media as { className?: string; document?: GramJsDocument } | undefined;
+    if (!media || media.className !== "MessageMediaDocument" || !media.document) return null;
+    const doc = media.document;
+    if (doc.mimeType !== "application/pdf") return null;
+
+    let filename = "document.pdf";
+    for (const attr of doc.attributes ?? []) {
+      if (attr.className === "DocumentAttributeFilename" && attr.fileName) {
+        filename = attr.fileName;
+        break;
+      }
+    }
+
+    const buf = await client.downloadMedia(msg as never);
+    if (!buf) return null;
+    return { buffer: normalizeDownload(buf), filename };
+  } catch {
+    return null;
   }
 }
 

@@ -39,7 +39,7 @@ function envTavilyExtractDepth(): "basic" | "advanced" {
   return "basic";
 }
 
-/** When set, only messages with quality_score >= this value get link summarization. */
+/** When set, only messages with text_score >= this value get link summarization. */
 function envLinkSummaryMinScore(): number | null {
   const v = typeof process !== "undefined" ? process.env?.LINK_SUMMARY_MIN_SCORE : undefined;
   if (v === undefined || v === "") return null;
@@ -64,8 +64,19 @@ function envCommentSummaryDelayMs(): number {
   return envNumber("COMMENT_SUMMARY_DELAY_MS", 400);
 }
 
+/** Minimum post body length (chars) to run comment summarization; shorter text skips Gemma. */
+function envCommentSummaryMinTextLength(): number {
+  return envNumber("COMMENT_SUMMARY_MIN_TEXT_LENGTH", 100);
+}
+
+function envDocSummaryMaxExtractChars(): number {
+  return envNumber("DOC_SUMMARY_MAX_EXTRACT_CHARS", 12_000);
+}
+
 export const PIPELINE_CONFIG = {
   QUALITY_WARN_THRESHOLD: 4.0,
+  /** Minimum original message length (characters) to run text scoring + translation batch. */
+  MIN_TEXT_SCORE_LENGTH: 100,
   BATCH_SIZE: 5,
   /** Preferred primary model (first in fallback chain). */
   GEMMA_MODEL: "gemma-3-27b-it",
@@ -88,9 +99,11 @@ export const PIPELINE_CONFIG = {
   TAVILY_EXTRACT_DEPTH: envTavilyExtractDepth(),
   /** Max characters of extracted page text sent to Gemma for summarization. */
   LINK_SUMMARY_MAX_EXTRACT_CHARS: envNumber("LINK_SUMMARY_MAX_EXTRACT_CHARS", 12_000),
+  /** Max characters of extracted PDF text sent to Gemma for document summary + score. */
+  DOC_SUMMARY_MAX_EXTRACT_CHARS: envDocSummaryMaxExtractChars(),
   /** Tavily Extract timeout in seconds (1–60 per API). */
   TAVILY_EXTRACT_TIMEOUT_SEC: envNumber("TAVILY_EXTRACT_TIMEOUT_SEC", 25),
-  /** Optional minimum quality_score for link summarization (unset = all messages with links). */
+  /** Optional minimum text_score for link summarization (unset = all messages with links). */
   LINK_SUMMARY_MIN_SCORE: envLinkSummaryMinScore(),
   /** Re-fetch comments and refresh summaries for posts at least this recent. */
   COMMENT_SUMMARY_WINDOW_HOURS: envCommentSummaryWindowHours(),
@@ -99,4 +112,6 @@ export const PIPELINE_CONFIG = {
   /** Cap comment-summary work per pipeline run (after window filter). */
   COMMENT_SUMMARY_MAX_POSTS_PER_RUN: envCommentSummaryMaxPostsPerRun(),
   COMMENT_SUMMARY_DELAY_MS: envCommentSummaryDelayMs(),
+  /** Skip comment LLM when original_text is non-empty but shorter than this (chars). */
+  COMMENT_SUMMARY_MIN_TEXT_LENGTH: envCommentSummaryMinTextLength(),
 } as const;

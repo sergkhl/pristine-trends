@@ -19,10 +19,14 @@ import {
 } from "./pipeline/gemma.js";
 import { transcribeAudio } from "./pipeline/whisper.js";
 import { scrapeOG } from "./pipeline/og.js";
-import { linkSummaryForFirstUrl } from "./pipeline/linkSummary.js";
+import { linkSummaryForFirstUrl, type LinkSummaryResult } from "./pipeline/linkSummary.js";
+import { documentSummaryForBuffer } from "./pipeline/documentSummary.js";
 import { CHANNELS, PIPELINE_CONFIG } from "./config/channels.js";
 import { uploadMessageImage } from "./storage/messageMedia.js";
 import { chunk } from "./util/chunk.js";
+import { computeGlobalScore } from "./util/computeGlobalScore.js";
+import { normalizeLinkUrl } from "./util/normalizeLinkUrl.js";
+import { isPipelineDebug } from "./util/pipelineDebug.js";
 import type { TelegramClient } from "telegram";
 
 const AVATAR_BUCKET = "channel-avatars";
@@ -30,6 +34,12 @@ const AVATAR_BUCKET = "channel-avatars";
 function logPipeline(step: string, detail?: Record<string, unknown>): void {
   const suffix = detail ? ` ${JSON.stringify(detail)}` : "";
   console.log(`[pipeline] ${step}${suffix}`);
+}
+
+function debugPipeline(step: string, detail?: Record<string, unknown>): void {
+  if (!isPipelineDebug()) return;
+  const suffix = detail ? ` ${JSON.stringify(detail)}` : "";
+  console.debug(`[pipeline] ${step}${suffix}`);
 }
 
 function maxPublishedAtByChannel(msgs: NormalizedMessage[]): Map<string, Date> {
@@ -65,8 +75,8 @@ type MessageInsert = {
   channel_type: string;
   original_text: string | null;
   translated_text: string | null;
-  quality_score: number | null;
-  quality_reason: string | null;
+  text_score: number | null;
+  text_score_reason: string | null;
   quality_status: string;
   audio_transcript: string | null;
   image_caption: string | null;
@@ -75,6 +85,11 @@ type MessageInsert = {
   link_urls: string[];
   link_summary: string | null;
   link_summary_status: string;
+  link_score: number | null;
+  document_summary: string | null;
+  document_summary_status: string;
+  document_score: number | null;
+  global_score: number | null;
   comment_count: number;
   comment_summary: string | null;
   comment_summary_status: string | null;
@@ -106,8 +121,43 @@ async function ingestFetchedMessages(
     logPipeline("supabase.dedupe.all_duplicates_heal_cursors");
   }
 
+  const linkSummaryCache = new Map<string, LinkSummaryResult>();
+  const normalizedUrls = new Set<string>();
+  for (const m of fresh) {
+    if (m.linkUrls[0]) {
+      const n = normalizeLinkUrl(m.linkUrls[0]);
+      if (n) normalizedUrls.add(n);
+    }
+  }
+  const urlList = [...normalizedUrls];
+  if (urlList.length > 0) {
+    const { data: linkRows, error: linkCacheErr } = await supabase
+      .from("messages")
+      .select("link_urls, link_summary, link_score")
+      .eq("link_summary_status", "ok")
+      .overlaps("link_urls", urlList);
+    if (linkCacheErr) throw linkCacheErr;
+    const wanted = new Set(urlList);
+    for (const row of linkRows ?? []) {
+      const urls = (row.link_urls as string[]) ?? [];
+      for (const u of urls) {
+        const n = normalizeLinkUrl(u);
+        if (n && wanted.has(n) && row.link_summary != null) {
+          linkSummaryCache.set(n, {
+            link_summary: row.link_summary as string,
+            link_summary_status: "ok",
+            link_score: row.link_score != null ? Number(row.link_score) : null,
+          });
+        }
+      }
+    }
+    logPipeline("link_summary.cache", { urlsRequested: urlList.length, cacheHits: linkSummaryCache.size });
+  }
+
   const textBatches = chunk(
-    fresh.filter((m) => m.text),
+    fresh.filter(
+      (m) => m.text && m.text.trim().length >= PIPELINE_CONFIG.MIN_TEXT_SCORE_LENGTH
+    ),
     PIPELINE_CONFIG.BATCH_SIZE
   );
   const aiResults = new Map<string, GemmaTextResult>();
@@ -127,23 +177,32 @@ async function ingestFetchedMessages(
   const enriched: MessageInsert[] = await Promise.all(
     fresh.map(async (msg) => {
       const ai = aiResults.get(msg.externalId);
-      const [audioText, imageCaption, linkPreview, mediaPublicUrl] = await Promise.all([
-        msg.audioBuffer ? transcribeAudio(msg.audioBuffer) : Promise.resolve(null),
-        msg.mediaBuffers[0] ? describeImageWithGemma(msg.mediaBuffers[0]) : Promise.resolve(null),
-        msg.linkUrls[0] ? scrapeOG(msg.linkUrls[0]) : Promise.resolve(null),
-        msg.mediaBuffers[0]
-          ? uploadMessageImage(supabase, msg.channelId, msg.externalId, msg.mediaBuffers[0])
-          : Promise.resolve(null),
-      ]);
+      const textScore = ai?.score ?? null;
 
-      const score = ai?.score ?? null;
-      const belowThreshold = (score ?? 10) < PIPELINE_CONFIG.QUALITY_WARN_THRESHOLD;
+      const [audioText, imageCaption, linkPreview, mediaPublicUrl, linkBlock, docBlock] =
+        await Promise.all([
+          msg.audioBuffer ? transcribeAudio(msg.audioBuffer) : Promise.resolve(null),
+          msg.mediaBuffers[0] ? describeImageWithGemma(msg.mediaBuffers[0]) : Promise.resolve(null),
+          msg.linkUrls[0] ? scrapeOG(msg.linkUrls[0]) : Promise.resolve(null),
+          msg.mediaBuffers[0]
+            ? uploadMessageImage(supabase, msg.channelId, msg.externalId, msg.mediaBuffers[0])
+            : Promise.resolve(null),
+          linkSummaryForFirstUrl(msg.linkUrls[0], textScore, logPipeline, linkSummaryCache),
+          msg.documentBuffer
+            ? documentSummaryForBuffer(msg.documentBuffer, msg.documentFilename, logPipeline)
+            : Promise.resolve({
+                document_summary: null,
+                document_summary_status: "skipped",
+                document_score: null,
+              }),
+        ]);
 
-      const { link_summary, link_summary_status } = await linkSummaryForFirstUrl(
-        msg.linkUrls[0],
-        score,
-        logPipeline
-      );
+      const { link_summary, link_summary_status, link_score } = linkBlock;
+      const { document_summary, document_summary_status, document_score } = docBlock;
+
+      const globalScore = computeGlobalScore(textScore, link_score, document_score);
+      const belowThreshold =
+        (globalScore ?? 10) < PIPELINE_CONFIG.QUALITY_WARN_THRESHOLD;
 
       return {
         external_id: msg.externalId,
@@ -152,8 +211,8 @@ async function ingestFetchedMessages(
         channel_type: msg.channelType,
         original_text: msg.text,
         translated_text: ai?.translatedText ?? null,
-        quality_score: score,
-        quality_reason: ai?.reason ?? null,
+        text_score: textScore,
+        text_score_reason: ai?.reason ?? null,
         quality_status: belowThreshold ? "low_quality" : "ok",
         audio_transcript: audioText,
         image_caption: imageCaption || null,
@@ -162,6 +221,11 @@ async function ingestFetchedMessages(
         link_urls: msg.linkUrls,
         link_summary,
         link_summary_status,
+        link_score,
+        document_summary,
+        document_summary_status,
+        document_score,
+        global_score: globalScore,
         comment_count: 0,
         comment_summary: null,
         comment_summary_status: null,
@@ -214,7 +278,10 @@ async function refreshCommentSummaries(
 
   if (error) throw error;
 
-  const candidates = (rows ?? []).filter((r) => r.comment_summary_status !== "no_discussion");
+  const candidates = (rows ?? []).filter((r) => {
+    const s = r.comment_summary_status;
+    return s !== "no_discussion" && s !== "ok" && s !== "short_text";
+  });
   const toProcess = candidates.slice(0, PIPELINE_CONFIG.COMMENT_SUMMARY_MAX_POSTS_PER_RUN);
 
   logPipeline("comment_summary.start", {
@@ -229,6 +296,14 @@ async function refreshCommentSummaries(
 
   for (let i = 0; i < toProcess.length; i++) {
     const row = toProcess[i]!;
+    debugPipeline("comment_summary.row", {
+      index: i + 1,
+      of: toProcess.length,
+      id: row.id,
+      external_id: row.external_id,
+      channel_id: row.channel_id,
+      comment_summary_status: row.comment_summary_status,
+    });
     if (i > 0 && delayMs > 0) {
       await new Promise((r) => setTimeout(r, delayMs));
     }
@@ -272,6 +347,28 @@ async function refreshCommentSummaries(
         continue;
       }
 
+      const textLen = ((row.original_text as string | null) ?? "").trim().length;
+      const minText = PIPELINE_CONFIG.COMMENT_SUMMARY_MIN_TEXT_LENGTH;
+      if (textLen > 0 && textLen < minText) {
+        const { error: upErr } = await supabase
+          .from("messages")
+          .update({
+            comment_count: count,
+            comment_summary: null,
+            comment_summary_status: "short_text",
+          })
+          .eq("id", row.id);
+        if (upErr) throw upErr;
+        continue;
+      }
+
+      debugPipeline("comment_summary.gemma_input", {
+        id: row.id,
+        external_id: row.external_id,
+        channelId,
+        messageId,
+        commentCount: count,
+      });
       const summary = await summarizeComments((row.original_text as string | null) ?? null, texts);
       if (!summary) {
         const { error: upErr } = await supabase
@@ -322,15 +419,21 @@ async function main(): Promise<void> {
   const channelIds = CHANNELS.map((c) => c.id);
   const { data: cursorRows, error: cursorErr } = await supabase
     .from("channels")
-    .select("channel_id, ingest_cursor_published_at")
+    .select("channel_id, ingest_cursor_published_at, display_name, display_name_en")
     .in("channel_id", channelIds);
   if (cursorErr) throw cursorErr;
   const cursorPublishedAtByChannel = new Map<string, string | null>();
+  const channelMetaByChannel = new Map<
+    string,
+    { display_name: string | null; display_name_en: string | null }
+  >();
   for (const row of cursorRows ?? []) {
-    cursorPublishedAtByChannel.set(
-      row.channel_id as string,
-      (row.ingest_cursor_published_at as string | null) ?? null
-    );
+    const cid = row.channel_id as string;
+    cursorPublishedAtByChannel.set(cid, (row.ingest_cursor_published_at as string | null) ?? null);
+    channelMetaByChannel.set(cid, {
+      display_name: (row.display_name as string | null) ?? null,
+      display_name_en: (row.display_name_en as string | null) ?? null,
+    });
   }
 
   const defaultSinceMs = Date.now() - PIPELINE_CONFIG.DEFAULT_LOOKBACK_HOURS * 60 * 60 * 1000;
@@ -362,8 +465,13 @@ async function main(): Promise<void> {
       }
       const title = displayNameFromEntity(entity);
       let displayNameEn: string | null = null;
+      const stored = channelMetaByChannel.get(ch.id);
       try {
-        displayNameEn = await translateChannelTitleToEnglish(title, ch.lang);
+        if (stored?.display_name === title && stored.display_name_en) {
+          displayNameEn = stored.display_name_en;
+        } else {
+          displayNameEn = await translateChannelTitleToEnglish(title, ch.lang);
+        }
       } catch (err) {
         console.warn(`[pipeline] channel title translation failed for ${ch.id}:`, err);
       }

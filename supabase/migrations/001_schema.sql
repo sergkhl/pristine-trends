@@ -39,8 +39,8 @@ create table messages (
   channel_type     text not null check (channel_type in ('public', 'private', 'group')),
   original_text    text,
   translated_text  text,
-  quality_score    numeric(4,2),
-  quality_reason   text,
+  text_score       numeric(4,2),
+  text_score_reason text,
   quality_status   text default 'ok',
   audio_transcript text,
   image_caption    text,
@@ -49,6 +49,11 @@ create table messages (
   link_urls        text[] default '{}',
   link_summary     text,
   link_summary_status text,
+  link_score       numeric(4,2),
+  document_score   numeric(4,2),
+  document_summary text,
+  document_summary_status text,
+  global_score     numeric(4,2),
   comment_count    integer not null default 0,
   comment_summary  text,
   comment_summary_status text,
@@ -58,7 +63,7 @@ create table messages (
 
 create index messages_published_at_desc on messages (published_at desc);
 create index messages_channel_published_desc on messages (channel_id, published_at desc);
-create index messages_quality_score_desc on messages (quality_score desc);
+create index messages_global_score_desc on messages (global_score desc nulls last);
 
 alter table messages enable row level security;
 create policy "public read messages" on messages for select using (true);

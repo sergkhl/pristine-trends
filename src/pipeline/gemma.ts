@@ -132,6 +132,27 @@ function parseGemmaBatchJson(text: string): GemmaTextResult[] {
   return out;
 }
 
+function parseSummaryScoreJson(text: string): { summary: string; score: number } | null {
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    dlog("summary_score.parse_error", { cleanedPreview: cleaned.slice(0, 400) });
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const o = parsed as Record<string, unknown>;
+  const summary = typeof o.summary === "string" ? o.summary : "";
+  const score = typeof o.score === "number" ? o.score : Number(o.score);
+  if (!summary.trim() || !Number.isFinite(score)) return null;
+  const oneBlock = summary.replace(/\s+/g, " ").trim();
+  return {
+    summary: oneBlock,
+    score: Math.min(10, Math.max(0, score)),
+  };
+}
+
 export async function scoreAndTranslateBatch(
   messages: { id: string; text: string; sourceLang: string }[]
 ): Promise<GemmaTextResult[]> {
@@ -289,14 +310,26 @@ Title: ${trimmed}`;
   return oneLine || null;
 }
 
-/** Summarize extracted page text for the feed; returns null on API/parse failure or empty output. */
-export async function summarizeLinkContent(url: string, extractedText: string): Promise<string | null> {
+/** Summarize extracted page text and score link content quality (single LLM call). */
+export async function summarizeAndScoreLinkContent(
+  url: string,
+  extractedText: string
+): Promise<{ summary: string; score: number } | null> {
   const trimmed = extractedText.trim();
   if (!trimmed) return null;
 
-  const prompt = `You summarize web page content for a news-style feed.
+  const prompt = `You analyze web page content for a news-style feed.
 
-Task: Write 2–4 short English sentences capturing the main factual takeaway. No markdown, no bullet list, no preamble.
+Return ONLY a JSON object (no markdown, no preamble) with this exact shape:
+{ "summary": "<2–4 short English sentences>", "score": <number 0–10> }
+
+Summary: capture the main factual takeaway. No markdown, no bullet list in the summary string.
+
+Scoring rubric for the linked page content:
+8–10  Original reporting, breaking news, primary source data, high-value research
+5–7   Useful analysis, credible secondary coverage with context
+2–4   Low-effort aggregation, thin content, unverified rumour
+0–1   Spam, pure advertising, meaningless or hostile content
 
 Page URL (context only): ${url}
 
@@ -304,27 +337,97 @@ Page content:
 ${trimmed}`;
 
   const t0 = performance.now();
-  dlog("link_summary.start", { urlChars: url.length, contentChars: trimmed.length });
+  dlog("link_summary_score.start", { urlChars: url.length, contentChars: trimmed.length });
 
   const res = await fetchGemma({
     contents: [{ parts: [{ text: prompt }] }],
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
-    dlog("link_summary.http_error", { status: res.status, bodyPreview: errText.slice(0, 200) });
-    console.warn(`[Gemma] link summary HTTP ${res.status}`, errText.slice(0, 160));
+    dlog("link_summary_score.http_error", { status: res.status, bodyPreview: errText.slice(0, 200) });
+    console.warn(`[Gemma] link summary+score HTTP ${res.status}`, errText.slice(0, 160));
     return null;
   }
   const data = await res.json();
   const raw = extractTextFromGemmaJson(data)?.trim() ?? "";
   if (!raw) {
-    dlog("link_summary.empty", { ms: Math.round(performance.now() - t0) });
-    console.warn("[Gemma] Empty link summary response");
+    dlog("link_summary_score.empty", { ms: Math.round(performance.now() - t0) });
+    console.warn("[Gemma] Empty link summary+score response");
     return null;
   }
-  const oneBlock = raw.replace(/\s+/g, " ").trim();
-  dlog("link_summary.done", { ms: Math.round(performance.now() - t0), outChars: oneBlock.length });
-  return oneBlock || null;
+  const parsed = parseSummaryScoreJson(raw);
+  if (!parsed) {
+    dlog("link_summary_score.parse_failed", { ms: Math.round(performance.now() - t0) });
+    console.warn("[Gemma] Failed to parse link summary+score JSON");
+    return null;
+  }
+  dlog("link_summary_score.done", {
+    ms: Math.round(performance.now() - t0),
+    outChars: parsed.summary.length,
+    score: parsed.score,
+  });
+  return parsed;
+}
+
+/** Summarize extracted document text and score document quality (single LLM call). */
+export async function summarizeAndScoreDocument(
+  extractedText: string,
+  filename?: string
+): Promise<{ summary: string; score: number } | null> {
+  const trimmed = extractedText.trim();
+  if (!trimmed) return null;
+
+  const nameHint = filename?.trim() ? `File name (context): ${filename.trim()}` : "File name: unknown";
+
+  const prompt = `You analyze document text for a news-style feed.
+
+Return ONLY a JSON object (no markdown, no preamble) with this exact shape:
+{ "summary": "<2–4 short English sentences>", "score": <number 0–10> }
+
+Summary: capture the main factual takeaway. No markdown, no bullet list in the summary string.
+
+Scoring rubric for the document content:
+8–10  Original research, substantive data, high-value primary material
+5–7   Useful reference or analysis with credible information
+2–4   Thin, promotional, or low-substance content
+0–1   Spam, meaningless, or misleading content
+
+${nameHint}
+
+Document text:
+${trimmed}`;
+
+  const t0 = performance.now();
+  dlog("document_summary_score.start", { contentChars: trimmed.length });
+
+  const res = await fetchGemma({
+    contents: [{ parts: [{ text: prompt }] }],
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    dlog("document_summary_score.http_error", { status: res.status, bodyPreview: errText.slice(0, 200) });
+    console.warn(`[Gemma] document summary+score HTTP ${res.status}`, errText.slice(0, 160));
+    return null;
+  }
+  const data = await res.json();
+  const raw = extractTextFromGemmaJson(data)?.trim() ?? "";
+  if (!raw) {
+    dlog("document_summary_score.empty", { ms: Math.round(performance.now() - t0) });
+    console.warn("[Gemma] Empty document summary+score response");
+    return null;
+  }
+  const parsed = parseSummaryScoreJson(raw);
+  if (!parsed) {
+    dlog("document_summary_score.parse_failed", { ms: Math.round(performance.now() - t0) });
+    console.warn("[Gemma] Failed to parse document summary+score JSON");
+    return null;
+  }
+  dlog("document_summary_score.done", {
+    ms: Math.round(performance.now() - t0),
+    outChars: parsed.summary.length,
+    score: parsed.score,
+  });
+  return parsed;
 }
 
 const COMMENT_SUMMARY_MAX_CHARS = 12_000;
