@@ -1,0 +1,1 @@
+- [ ] Check duplicate cosine similarity
