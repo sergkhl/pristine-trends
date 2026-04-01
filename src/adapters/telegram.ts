@@ -1,6 +1,7 @@
 import { TelegramClient, sessions } from "telegram";
 import type { EntityLike } from "telegram/define.js";
 import { CHANNELS, type ChannelSourceType } from "../config/channels.js";
+import { normalizeLinkUrls } from "../util/normalizeLinkUrl.js";
 
 type GramJsMessage = Record<string, unknown> & {
   id: number;
@@ -89,7 +90,7 @@ export async function fetchSince(
           text: msg.message ?? null,
           mediaBuffers,
           audioBuffer,
-          linkUrls: extractLinks(msg),
+          linkUrls: normalizeLinkUrls(extractLinks(msg)),
           publishedAt: msgDate.toISOString(),
         });
       }

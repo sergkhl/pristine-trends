@@ -10,13 +10,12 @@ import {
 import {
   scoreAndTranslateBatch,
   describeImageWithGemma,
-  summarizeLinkContent,
   translateChannelTitleToEnglish,
   type GemmaTextResult,
 } from "./pipeline/gemma.js";
 import { transcribeAudio } from "./pipeline/whisper.js";
 import { scrapeOG } from "./pipeline/og.js";
-import { extractPageTextForUrl, isUrlAllowedForTavily } from "./pipeline/tavilyExtract.js";
+import { linkSummaryForFirstUrl } from "./pipeline/linkSummary.js";
 import { CHANNELS, PIPELINE_CONFIG } from "./config/channels.js";
 import { uploadMessageImage } from "./storage/messageMedia.js";
 import { chunk } from "./util/chunk.js";
@@ -73,44 +72,6 @@ type MessageInsert = {
   link_summary_status: string;
   published_at: string;
 };
-
-async function linkSummaryForFirstUrl(
-  firstLink: string | undefined,
-  qualityScore: number | null
-): Promise<{ link_summary: string | null; link_summary_status: string }> {
-  if (!firstLink) {
-    return { link_summary: null, link_summary_status: "skipped" };
-  }
-  const min = PIPELINE_CONFIG.LINK_SUMMARY_MIN_SCORE;
-  if (min != null && (qualityScore == null || qualityScore < min)) {
-    return { link_summary: null, link_summary_status: "skipped" };
-  }
-  if (!process.env.TAVILY_API_KEY?.trim()) {
-    return { link_summary: null, link_summary_status: "skipped" };
-  }
-  if (!isUrlAllowedForTavily(firstLink)) {
-    return { link_summary: null, link_summary_status: "skipped" };
-  }
-
-  const ex = await extractPageTextForUrl(firstLink);
-  if (ex.status === "extract_failed") {
-    logPipeline("link_summary.extract_failed", {
-      url: firstLink,
-      detail: ex.detail,
-      requestId: ex.requestId,
-    });
-    return { link_summary: null, link_summary_status: "extract_failed" };
-  }
-  if (ex.status === "no_text") {
-    return { link_summary: null, link_summary_status: "no_text" };
-  }
-
-  const summary = await summarizeLinkContent(firstLink, ex.rawContent);
-  if (!summary) {
-    return { link_summary: null, link_summary_status: "summarize_failed" };
-  }
-  return { link_summary: summary, link_summary_status: "ok" };
-}
 
 async function main(): Promise<void> {
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -271,7 +232,8 @@ async function main(): Promise<void> {
 
       const { link_summary, link_summary_status } = await linkSummaryForFirstUrl(
         msg.linkUrls[0],
-        score
+        score,
+        logPipeline
       );
 
       return {

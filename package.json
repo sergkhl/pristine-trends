@@ -7,6 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "upload-messages": "npx tsx scripts/upload-messages.ts",
+    "backfill-link-summaries": "npx tsx scripts/backfill-link-summaries.ts",
     "gen-session": "npx tsx scripts/gen-session.ts"
   },
   "dependencies": {
