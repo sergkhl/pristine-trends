@@ -67,7 +67,18 @@ function envCommentSummaryDelayMs(): number {
 export const PIPELINE_CONFIG = {
   QUALITY_WARN_THRESHOLD: 4.0,
   BATCH_SIZE: 5,
+  /** Preferred primary model (first in fallback chain). */
   GEMMA_MODEL: "gemma-3-27b-it",
+  /** Text LLM fallback order when a model returns HTTP 429 (rate limit). */
+  GEMMA_FALLBACK_CHAIN: [
+    "gemma-3-27b-it",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemma-3-12b-it",
+  ] as const,
+  /** Vision (inline image) calls: Gemma models only. */
+  GEMMA_VISION_CHAIN: ["gemma-3-27b-it", "gemma-3-12b-it"] as const,
   HF_WHISPER: "openai/whisper-large-v3",
   /** First run or missing cursor: fetch at least this many hours back. */
   DEFAULT_LOOKBACK_HOURS: envNumber("PIPELINE_DEFAULT_LOOKBACK_HOURS", 24),

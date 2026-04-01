@@ -1,7 +1,8 @@
 import { PIPELINE_CONFIG, type ChannelConfig } from "../config/channels.js";
 import { isPipelineDebug } from "../util/pipelineDebug.js";
 
-const MAX_RETRIES = 4;
+const MAX_429_RETRIES_PER_MODEL = 2;
+const MAX_5XX_RETRIES = 4;
 const BASE_DELAY_MS = 2000;
 
 function sleep(ms: number): Promise<void> {
@@ -14,28 +15,67 @@ function dlog(msg: string, detail?: Record<string, unknown>): void {
   console.debug(`[Gemma] ${msg}${tail}`);
 }
 
-function gemmaEndpoint(): string {
+function gemmaEndpointForModel(model: string): string {
   const key = process.env.GOOGLE_AI_KEY;
   if (!key) throw new Error("GOOGLE_AI_KEY is not set");
-  return `https://generativelanguage.googleapis.com/v1beta/models/${PIPELINE_CONFIG.GEMMA_MODEL}:generateContent?key=${key}`;
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 }
 
-async function fetchGemma(body: object): Promise<Response> {
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    const res = await fetch(gemmaEndpoint(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
-      const delay = BASE_DELAY_MS * 2 ** attempt;
-      console.warn(`[Gemma] ${res.status}, retry in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
-      await sleep(delay);
-      continue;
-    }
-    return res;
+async function fetchGemma(
+  body: object,
+  chain: readonly string[] = PIPELINE_CONFIG.GEMMA_FALLBACK_CHAIN
+): Promise<Response> {
+  const models = [...chain];
+  if (models.length === 0) {
+    throw new Error("Gemma fetch: empty model chain");
   }
-  throw new Error("Gemma fetch exhausted retries");
+
+  for (let mi = 0; mi < models.length; mi++) {
+    const model = models[mi]!;
+    let rateLimitRetries = 0;
+    let serverErrorRetries = 0;
+
+    while (true) {
+      const res = await fetch(gemmaEndpointForModel(model), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (res.status === 429) {
+        if (rateLimitRetries < MAX_429_RETRIES_PER_MODEL) {
+          rateLimitRetries++;
+          const delay = BASE_DELAY_MS * 2 ** (rateLimitRetries - 1);
+          console.warn(
+            `[Gemma] model=${model} HTTP 429, retry in ${delay}ms (${rateLimitRetries}/${MAX_429_RETRIES_PER_MODEL})`
+          );
+          await sleep(delay);
+          continue;
+        }
+        if (mi < models.length - 1) {
+          console.warn(`[Gemma] model=${model} HTTP 429 exhausted, falling back to ${models[mi + 1]}`);
+        }
+        break;
+      }
+
+      if (res.status >= 500 && res.status < 600) {
+        if (serverErrorRetries < MAX_5XX_RETRIES) {
+          serverErrorRetries++;
+          const delay = BASE_DELAY_MS * 2 ** (serverErrorRetries - 1);
+          console.warn(
+            `[Gemma] model=${model} HTTP ${res.status}, retry in ${delay}ms (attempt ${serverErrorRetries}/${MAX_5XX_RETRIES})`
+          );
+          await sleep(delay);
+          continue;
+        }
+        throw new Error(`Gemma fetch exhausted 5xx retries on ${model}`);
+      }
+
+      return res;
+    }
+  }
+
+  throw new Error("Gemma fetch exhausted fallback chain (429 on all models)");
 }
 
 export type GemmaTextResult = {
@@ -171,21 +211,24 @@ export async function describeImageWithGemma(
     "Describe this image for a news feed: main subject, any visible text (OCR), and credibility cues. " +
     "Answer in one short English paragraph, no markdown.";
 
-  const res = await fetchGemma({
-    contents: [
-      {
-        parts: [
-          { text: prompt },
-          {
-            inline_data: {
-              mime_type: mimeType,
-              data: imageBuffer.toString("base64"),
+  const res = await fetchGemma(
+    {
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: imageBuffer.toString("base64"),
+              },
             },
-          },
-        ],
-      },
-    ],
-  });
+          ],
+        },
+      ],
+    },
+    PIPELINE_CONFIG.GEMMA_VISION_CHAIN
+  );
   if (!res.ok) {
     dlog("vision.http_error", { status: res.status, ms: Math.round(performance.now() - t0) });
     console.warn(`[Gemma] vision HTTP ${res.status}`);
