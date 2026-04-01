@@ -1,4 +1,0 @@
-- [ ] Summarize and rate attachements
-- [ ] Summarize and rate comments
-- [ ] Score should be calculated for the message as a whole: text, attachments, links
-- [ ] Save last filters in local storage

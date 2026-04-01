@@ -34,7 +34,7 @@ function isRankedSortKey(v: string): v is RankedSortKey {
   return v === "date" || v === "score";
 }
 
-function clampMinScore(n: number): number {
+export function clampMinScore(n: number): number {
   const s = RANKED_MIN_SCORE_STEP;
   const rounded = Math.round(n / s) * s;
   return Math.min(RANKED_MIN_SCORE_MAX, Math.max(RANKED_MIN_SCORE_MIN, rounded));
