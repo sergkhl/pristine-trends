@@ -1,4 +1,4 @@
-import { TelegramClient, sessions } from "telegram";
+import { Api, TelegramClient, sessions } from "telegram";
 import type { EntityLike } from "telegram/define.js";
 import { CHANNELS, type ChannelSourceType } from "../config/channels.js";
 import { normalizeLinkUrls } from "../util/normalizeLinkUrl.js";
@@ -56,6 +56,76 @@ export function createTelegramClient(): TelegramClient {
     process.env.TELEGRAM_API_HASH!,
     { connectionRetries: 3 }
   );
+}
+
+/**
+ * Parse `channelId_messageId` produced by ingest (`${ch.id}_${msg.id}`).
+ * Message id is everything after the last `_` (channel ids may contain `_` in theory).
+ */
+export function parseMessageExternalId(externalId: string): { channelId: string; messageId: number } | null {
+  const i = externalId.lastIndexOf("_");
+  if (i <= 0) return null;
+  const channelId = externalId.slice(0, i);
+  const messageId = Number(externalId.slice(i + 1));
+  if (!Number.isFinite(messageId) || messageId <= 0) return null;
+  return { channelId, messageId };
+}
+
+/**
+ * Whether this broadcast channel has a linked discussion supergroup (comments enabled).
+ * Pass the same `cache` Map across calls in one run to avoid duplicate GetFullChannel requests.
+ */
+export async function hasLinkedDiscussion(
+  client: TelegramClient,
+  channelId: EntityLike,
+  cache: Map<string, boolean>
+): Promise<boolean> {
+  const key = typeof channelId === "string" ? channelId : String(channelId);
+  if (cache.has(key)) return cache.get(key)!;
+  try {
+    const input = await client.getInputEntity(channelId);
+    const res = await client.invoke(
+      new Api.channels.GetFullChannel({ channel: input as unknown as Api.InputChannel })
+    );
+    const fullChat = res.fullChat as { linkedChatId?: unknown } | undefined;
+    const linked =
+      fullChat != null &&
+      fullChat.linkedChatId != null &&
+      !isZeroLikeId(fullChat.linkedChatId);
+    cache.set(key, linked);
+    return linked;
+  } catch (err) {
+    console.warn(`[Telegram] hasLinkedDiscussion failed for ${key}:`, err);
+    cache.set(key, false);
+    return false;
+  }
+}
+
+function isZeroLikeId(v: unknown): boolean {
+  try {
+    return BigInt(String(v)) === 0n;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Text of replies to a channel post (Telegram comments / thread). Uses `messages.getReplies`.
+ */
+export async function fetchCommentsForPost(
+  client: TelegramClient,
+  channelId: EntityLike,
+  postMsgId: number,
+  limit = 200
+): Promise<string[]> {
+  const messages = await client.getMessages(channelId, { replyTo: postMsgId, limit });
+  const texts: string[] = [];
+  for (const m of messages) {
+    const raw = typeof m.message === "string" ? m.message : "";
+    const t = raw.trim();
+    if (t) texts.push(t);
+  }
+  return texts;
 }
 
 /** Newest 200 messages per channel only; very active channels may miss older posts in the window. */

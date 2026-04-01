@@ -30,6 +30,9 @@ export type MessageRow = {
   link_urls: string[] | null;
   link_summary: string | null;
   link_summary_status: string | null;
+  comment_count: number | null;
+  comment_summary: string | null;
+  comment_summary_status: string | null;
   published_at: string;
   channels: {
     avatar_url: string | null;

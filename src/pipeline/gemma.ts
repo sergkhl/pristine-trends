@@ -283,3 +283,56 @@ ${trimmed}`;
   dlog("link_summary.done", { ms: Math.round(performance.now() - t0), outChars: oneBlock.length });
   return oneBlock || null;
 }
+
+const COMMENT_SUMMARY_MAX_CHARS = 12_000;
+
+/** Summarize discussion replies for a channel post; returns null on API/parse failure or empty output. */
+export async function summarizeComments(
+  postText: string | null,
+  comments: string[]
+): Promise<string | null> {
+  if (comments.length === 0) return null;
+
+  const postCtx = (postText ?? "").trim().slice(0, 4_000);
+  const numbered = comments
+    .slice(0, 200)
+    .map((c, i) => `[${i + 1}] ${c.trim()}`)
+    .join("\n");
+  let body = numbered;
+  if (body.length > COMMENT_SUMMARY_MAX_CHARS) {
+    body = `${body.slice(0, COMMENT_SUMMARY_MAX_CHARS)}\n\n[truncated]`;
+  }
+
+  const prompt = `You summarize Telegram discussion comments for a news-style feed.
+
+Task: Write 2–4 short English sentences describing the main themes, agreements, disagreements, and notable questions in the comments. No markdown, no bullet list, no preamble. Do not quote comment numbers.
+
+Original post (context):
+${postCtx || "(no text)"}
+
+Comments:
+${body}`;
+
+  const t0 = performance.now();
+  dlog("comment_summary.start", { commentCount: comments.length, bodyChars: body.length });
+
+  const res = await fetchGemma({
+    contents: [{ parts: [{ text: prompt }] }],
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    dlog("comment_summary.http_error", { status: res.status, bodyPreview: errText.slice(0, 200) });
+    console.warn(`[Gemma] comment summary HTTP ${res.status}`, errText.slice(0, 160));
+    return null;
+  }
+  const data = await res.json();
+  const raw = extractTextFromGemmaJson(data)?.trim() ?? "";
+  if (!raw) {
+    dlog("comment_summary.empty", { ms: Math.round(performance.now() - t0) });
+    console.warn("[Gemma] Empty comment summary response");
+    return null;
+  }
+  const oneBlock = raw.replace(/\s+/g, " ").trim();
+  dlog("comment_summary.done", { ms: Math.round(performance.now() - t0), outChars: oneBlock.length });
+  return oneBlock || null;
+}

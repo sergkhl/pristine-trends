@@ -140,6 +140,18 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
           </ul>
         ) : null}
 
+        {msg.comment_summary?.trim() ? (
+          <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs">
+            <p className="m-0 mb-1 font-semibold text-muted-foreground">Discussion</p>
+            <p className="m-0 leading-relaxed">{msg.comment_summary}</p>
+            {typeof msg.comment_count === "number" && msg.comment_count > 0 ? (
+              <p className="m-0 mt-1 text-muted-foreground">
+                From {msg.comment_count} comments
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {msg.audio_transcript ? (
           <blockquote className="m-0 border-primary border-l-[3px] bg-muted px-3 py-2 text-xs">
             {msg.audio_transcript}

@@ -47,6 +47,23 @@ function envLinkSummaryMinScore(): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function envCommentSummaryWindowHours(): number {
+  return envNumber("COMMENT_SUMMARY_WINDOW_HOURS", 48);
+}
+
+function envCommentSummaryMinCount(): number {
+  return envNumber("COMMENT_SUMMARY_MIN_COUNT", 5);
+}
+
+function envCommentSummaryMaxPostsPerRun(): number {
+  return envNumber("COMMENT_SUMMARY_MAX_POSTS_PER_RUN", 50);
+}
+
+/** Delay between Telegram getReplies calls to reduce flood limits. */
+function envCommentSummaryDelayMs(): number {
+  return envNumber("COMMENT_SUMMARY_DELAY_MS", 400);
+}
+
 export const PIPELINE_CONFIG = {
   QUALITY_WARN_THRESHOLD: 4.0,
   BATCH_SIZE: 5,
@@ -64,4 +81,11 @@ export const PIPELINE_CONFIG = {
   TAVILY_EXTRACT_TIMEOUT_SEC: envNumber("TAVILY_EXTRACT_TIMEOUT_SEC", 25),
   /** Optional minimum quality_score for link summarization (unset = all messages with links). */
   LINK_SUMMARY_MIN_SCORE: envLinkSummaryMinScore(),
+  /** Re-fetch comments and refresh summaries for posts at least this recent. */
+  COMMENT_SUMMARY_WINDOW_HOURS: envCommentSummaryWindowHours(),
+  /** Minimum reply count before calling Gemma for a comment summary. */
+  COMMENT_SUMMARY_MIN_COUNT: envCommentSummaryMinCount(),
+  /** Cap comment-summary work per pipeline run (after window filter). */
+  COMMENT_SUMMARY_MAX_POSTS_PER_RUN: envCommentSummaryMaxPostsPerRun(),
+  COMMENT_SUMMARY_DELAY_MS: envCommentSummaryDelayMs(),
 } as const;

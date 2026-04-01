@@ -49,6 +49,9 @@ create table messages (
   link_urls        text[] default '{}',
   link_summary     text,
   link_summary_status text,
+  comment_count    integer not null default 0,
+  comment_summary  text,
+  comment_summary_status text,
   published_at     timestamptz not null,
   created_at       timestamptz default now()
 );
