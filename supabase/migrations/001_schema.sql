@@ -57,6 +57,7 @@ create table messages (
   comment_count    integer not null default 0,
   comment_summary  text,
   comment_summary_status text,
+  comment_summary_updated_at timestamptz,
   published_at     timestamptz not null,
   created_at       timestamptz default now()
 );

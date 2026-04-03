@@ -270,7 +270,7 @@ async function refreshCommentSummaries(
 
   const { data: rows, error } = await supabase
     .from("messages")
-    .select("id, external_id, channel_id, original_text, comment_summary_status")
+    .select("id, external_id, channel_id, original_text, comment_summary_status, comment_count")
     .in("channel_id", channelIds)
     .gte("published_at", cutoff)
     .order("published_at", { ascending: false })
@@ -280,7 +280,7 @@ async function refreshCommentSummaries(
 
   const candidates = (rows ?? []).filter((r) => {
     const s = r.comment_summary_status;
-    return s !== "no_discussion" && s !== "ok" && s !== "short_text";
+    return s !== "no_discussion" && s !== "short_text";
   });
   const toProcess = candidates.slice(0, PIPELINE_CONFIG.COMMENT_SUMMARY_MAX_POSTS_PER_RUN);
 
@@ -293,9 +293,11 @@ async function refreshCommentSummaries(
   const discussionCache = new Map<string, boolean>();
   const min = PIPELINE_CONFIG.COMMENT_SUMMARY_MIN_COUNT;
   const delayMs = PIPELINE_CONFIG.COMMENT_SUMMARY_DELAY_MS;
+  const resummarizeDelta = PIPELINE_CONFIG.COMMENT_SUMMARY_RESUMMARIZE_DELTA;
 
   for (let i = 0; i < toProcess.length; i++) {
     const row = toProcess[i]!;
+    const isResummarize = row.comment_summary_status === "ok";
     debugPipeline("comment_summary.row", {
       index: i + 1,
       of: toProcess.length,
@@ -303,6 +305,7 @@ async function refreshCommentSummaries(
       external_id: row.external_id,
       channel_id: row.channel_id,
       comment_summary_status: row.comment_summary_status,
+      isResummarize,
     });
     if (i > 0 && delayMs > 0) {
       await new Promise((r) => setTimeout(r, delayMs));
@@ -335,15 +338,29 @@ async function refreshCommentSummaries(
       const count = texts.length;
 
       if (count < min) {
-        const { error: upErr } = await supabase
-          .from("messages")
-          .update({
-            comment_count: count,
-            comment_summary: null,
-            comment_summary_status: "below_threshold",
-          })
-          .eq("id", row.id);
-        if (upErr) throw upErr;
+        if (!isResummarize) {
+          const { error: upErr } = await supabase
+            .from("messages")
+            .update({
+              comment_count: count,
+              comment_summary: null,
+              comment_summary_status: "below_threshold",
+            })
+            .eq("id", row.id);
+          if (upErr) throw upErr;
+        }
+        continue;
+      }
+
+      const storedCount = (row.comment_count as number | null) ?? 0;
+      if (isResummarize && count - storedCount < resummarizeDelta) {
+        debugPipeline("comment_summary.skip_delta", {
+          id: row.id,
+          storedCount,
+          liveCount: count,
+          delta: count - storedCount,
+          requiredDelta: resummarizeDelta,
+        });
         continue;
       }
 
@@ -362,6 +379,14 @@ async function refreshCommentSummaries(
         continue;
       }
 
+      if (isResummarize) {
+        logPipeline("comment_summary.resummarize", {
+          id: row.id,
+          external_id: row.external_id,
+          storedCount,
+          liveCount: count,
+        });
+      }
       debugPipeline("comment_summary.gemma_input", {
         id: row.id,
         external_id: row.external_id,
@@ -375,8 +400,9 @@ async function refreshCommentSummaries(
           .from("messages")
           .update({
             comment_count: count,
-            comment_summary: null,
-            comment_summary_status: "summarize_failed",
+            comment_summary: isResummarize ? undefined : null,
+            comment_summary_status: isResummarize ? "ok" : "summarize_failed",
+            comment_summary_updated_at: new Date().toISOString(),
           })
           .eq("id", row.id);
         if (upErr) throw upErr;
@@ -389,16 +415,19 @@ async function refreshCommentSummaries(
           comment_count: count,
           comment_summary: summary,
           comment_summary_status: "ok",
+          comment_summary_updated_at: new Date().toISOString(),
         })
         .eq("id", row.id);
       if (upErr) throw upErr;
     } catch (err) {
       console.warn(`[pipeline] comment_summary row failed id=${row.id}`, err);
-      const { error: upErr } = await supabase
-        .from("messages")
-        .update({ comment_summary_status: "skipped" })
-        .eq("id", row.id);
-      if (upErr) console.warn("[pipeline] comment_summary skip persist failed", upErr);
+      if (!isResummarize) {
+        const { error: upErr } = await supabase
+          .from("messages")
+          .update({ comment_summary_status: "skipped" })
+          .eq("id", row.id);
+        if (upErr) console.warn("[pipeline] comment_summary skip persist failed", upErr);
+      }
     }
   }
 

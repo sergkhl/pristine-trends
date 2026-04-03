@@ -68,6 +68,11 @@ function envCommentSummaryMinTextLength(): number {
   return envNumber("COMMENT_SUMMARY_MIN_TEXT_LENGTH", 100);
 }
 
+/** Re-summarize an already-ok post when live comment count exceeds stored count by at least this many. */
+function envCommentSummaryResummarizeDelta(): number {
+  return envNumber("COMMENT_SUMMARY_RESUMMARIZE_DELTA", 7);
+}
+
 function envDocSummaryMaxExtractChars(): number {
   return envNumber("DOC_SUMMARY_MAX_EXTRACT_CHARS", 12_000);
 }
@@ -115,4 +120,6 @@ export const PIPELINE_CONFIG = {
   COMMENT_SUMMARY_DELAY_MS: envCommentSummaryDelayMs(),
   /** Skip comment LLM when original_text is non-empty but shorter than this (chars). */
   COMMENT_SUMMARY_MIN_TEXT_LENGTH: envCommentSummaryMinTextLength(),
+  /** Re-summarize when live comment count exceeds stored count by at least this delta. */
+  COMMENT_SUMMARY_RESUMMARIZE_DELTA: envCommentSummaryResummarizeDelta(),
 } as const;
