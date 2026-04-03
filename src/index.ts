@@ -21,6 +21,7 @@ import { transcribeAudio } from "./pipeline/whisper.js";
 import { scrapeOG } from "./pipeline/og.js";
 import { linkSummaryForFirstUrl, type LinkSummaryResult } from "./pipeline/linkSummary.js";
 import { documentSummaryForBuffer } from "./pipeline/documentSummary.js";
+import { runFactChecker } from "./pipeline/skills/factChecker.js";
 import { CHANNELS, PIPELINE_CONFIG } from "./config/channels.js";
 import { uploadMessageImage } from "./storage/messageMedia.js";
 import { chunk } from "./util/chunk.js";
@@ -89,6 +90,8 @@ type MessageInsert = {
   document_summary: string | null;
   document_summary_status: string;
   document_score: number | null;
+  link_extracted_text: string | null;
+  skill_results: Record<string, unknown> | null;
   global_score: number | null;
   comment_count: number;
   comment_summary: string | null;
@@ -133,7 +136,7 @@ async function ingestFetchedMessages(
   if (urlList.length > 0) {
     const { data: linkRows, error: linkCacheErr } = await supabase
       .from("messages")
-      .select("link_urls, link_summary, link_score")
+      .select("link_urls, link_summary, link_score, link_extracted_text")
       .eq("link_summary_status", "ok")
       .overlaps("link_urls", urlList);
     if (linkCacheErr) throw linkCacheErr;
@@ -147,6 +150,7 @@ async function ingestFetchedMessages(
             link_summary: row.link_summary as string,
             link_summary_status: "ok",
             link_score: row.link_score != null ? Number(row.link_score) : null,
+            link_extracted_text: (row.link_extracted_text as string | null) ?? null,
           });
         }
       }
@@ -173,12 +177,38 @@ async function ingestFetchedMessages(
   }
   logPipeline("gemma.score_batches.done", { scoredIds: aiResults.size });
 
+  const skillsEnabled = PIPELINE_CONFIG.SKILLS_ENABLED;
+  const runFactCheck = skillsEnabled.includes("fact-checker");
+  const skillQualifiedIds = new Set<string>();
+  if (runFactCheck) {
+    const candidates = fresh.filter((m) => {
+      const ai = aiResults.get(m.externalId);
+      const textLen = (m.text ?? "").trim().length;
+      const score = ai?.score ?? null;
+      return (
+        textLen >= PIPELINE_CONFIG.SKILL_MIN_TEXT_LENGTH &&
+        score != null &&
+        score >= PIPELINE_CONFIG.SKILL_MIN_SCORE
+      );
+    });
+    for (const m of candidates.slice(0, PIPELINE_CONFIG.SKILL_MAX_MESSAGES_PER_RUN)) {
+      skillQualifiedIds.add(m.externalId);
+    }
+    logPipeline("skills.prefilter", {
+      enabled: [...skillsEnabled],
+      candidates: candidates.length,
+      qualified: skillQualifiedIds.size,
+      cap: PIPELINE_CONFIG.SKILL_MAX_MESSAGES_PER_RUN,
+    });
+  }
+
   logPipeline("enrich.start", { count: fresh.length });
   const enriched: MessageInsert[] = await Promise.all(
     fresh.map(async (msg) => {
       const ai = aiResults.get(msg.externalId);
       const textScore = ai?.score ?? null;
 
+      // Phase 1: parallel enrichments
       const [audioText, imageCaption, linkPreview, mediaPublicUrl, linkBlock, docBlock] =
         await Promise.all([
           msg.audioBuffer ? transcribeAudio(msg.audioBuffer) : Promise.resolve(null),
@@ -197,8 +227,29 @@ async function ingestFetchedMessages(
               }),
         ]);
 
-      const { link_summary, link_summary_status, link_score } = linkBlock;
+      const { link_summary, link_summary_status, link_score, link_extracted_text } = linkBlock;
       const { document_summary, document_summary_status, document_score } = docBlock;
+
+      // Phase 2: skills (depend on Phase 1 outputs)
+      let skillResults: Record<string, unknown> | null = null;
+      if (runFactCheck && skillQualifiedIds.has(msg.externalId) && msg.text) {
+        try {
+          const fcResult = await runFactChecker({
+            text: msg.text,
+            translatedText: ai?.translatedText,
+            linkExtractedText: link_extracted_text,
+            linkSummary: link_summary,
+            documentSummary: document_summary,
+            imageCaption: imageCaption || undefined,
+            audioTranscript: audioText || undefined,
+          });
+          if (fcResult) {
+            skillResults = { fact_checker: fcResult };
+          }
+        } catch (err) {
+          console.warn(`[pipeline] fact_checker failed for ${msg.externalId}`, err);
+        }
+      }
 
       const globalScore = computeGlobalScore(textScore, link_score, document_score);
       const belowThreshold =
@@ -225,6 +276,8 @@ async function ingestFetchedMessages(
         document_summary,
         document_summary_status,
         document_score,
+        link_extracted_text,
+        skill_results: skillResults,
         global_score: globalScore,
         comment_count: 0,
         comment_summary: null,

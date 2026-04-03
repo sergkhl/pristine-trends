@@ -1,6 +1,6 @@
 "use client";
 
-import { WarningCircle } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@phosphor-icons/react";
 import { useEffect, useRef } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -94,7 +94,7 @@ export function InfiniteFeedList({
   if (error && messages.length === 0) {
     return (
       <Alert variant="destructive" className="my-8">
-        <WarningCircle />
+        <WarningCircleIcon />
         <AlertTitle>Could not load feed</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
       </Alert>

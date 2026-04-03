@@ -1,6 +1,6 @@
 "use client";
 
-import { WarningCircle } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -110,7 +110,7 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
       <CardContent className="flex flex-col gap-3">
         {msg.quality_status === "low_quality" ? (
           <Alert variant="destructive">
-            <WarningCircle />
+            <WarningCircleIcon />
             <AlertTitle>Low quality</AlertTitle>
             <AlertDescription>{msg.text_score_reason ?? "—"}</AlertDescription>
           </Alert>
@@ -177,6 +177,9 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
               {typeof msg.comment_count === "number" && msg.comment_count > 0 ? (
                 <p className="m-0 mt-1 text-muted-foreground">
                   From {msg.comment_count} comments
+                  {msg.comment_summary_updated_at ? (
+                    <> · updated {formatRelative(msg.comment_summary_updated_at)}</>
+                  ) : null}
                 </p>
               ) : null}
             </>

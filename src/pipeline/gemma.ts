@@ -21,7 +21,7 @@ function gemmaEndpointForModel(model: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 }
 
-async function fetchGemma(
+export async function fetchGemma(
   body: object,
   chain: readonly string[] = PIPELINE_CONFIG.GEMMA_FALLBACK_CHAIN
 ): Promise<Response> {
@@ -85,16 +85,53 @@ export type GemmaTextResult = {
   translatedText: string;
 };
 
-function extractTextFromGemmaJson(data: unknown): string | null {
+export function extractTextFromGemmaJson(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
   const d = data as {
     candidates?: Array<{
-      content?: { parts?: Array<{ text?: string }> };
+      content?: { parts?: Array<{ text?: string; thought?: boolean }> };
     }>;
   };
   const parts = d.candidates?.[0]?.content?.parts;
   if (!parts?.length) return null;
-  return parts.map((p) => p.text ?? "").join("").trim() || null;
+  return (
+    parts
+      .filter((p) => !p.thought)
+      .map((p) => p.text ?? "")
+      .join("")
+      .trim() || null
+  );
+}
+
+/**
+ * Send a prompt with a system instruction to Gemma and return the raw text response.
+ * Intended for skill execution where the skill markdown is the system prompt.
+ */
+export async function executeWithSystemPrompt(
+  systemPrompt: string,
+  userPrompt: string,
+  chain?: readonly string[]
+): Promise<string | null> {
+  const t0 = performance.now();
+  dlog("system_prompt.start", { systemChars: systemPrompt.length, userChars: userPrompt.length });
+
+  const res = await fetchGemma(
+    {
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ parts: [{ text: userPrompt }] }],
+    },
+    chain
+  );
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    dlog("system_prompt.http_error", { status: res.status, bodyPreview: errText.slice(0, 300) });
+    console.warn(`[Gemma] system_prompt HTTP ${res.status}`, errText.slice(0, 200));
+    return null;
+  }
+  const data = await res.json();
+  const text = extractTextFromGemmaJson(data)?.trim() ?? null;
+  dlog("system_prompt.done", { ms: Math.round(performance.now() - t0), outChars: text?.length ?? 0 });
+  return text;
 }
 
 function parseGemmaBatchJson(text: string): GemmaTextResult[] {

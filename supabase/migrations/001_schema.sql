@@ -53,6 +53,8 @@ create table messages (
   document_score   numeric(4,2),
   document_summary text,
   document_summary_status text,
+  link_extracted_text text,
+  skill_results    jsonb,
   global_score     numeric(4,2),
   comment_count    integer not null default 0,
   comment_summary  text,

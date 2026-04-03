@@ -77,6 +77,12 @@ function envDocSummaryMaxExtractChars(): number {
   return envNumber("DOC_SUMMARY_MAX_EXTRACT_CHARS", 12_000);
 }
 
+function envSkillsEnabled(): readonly string[] {
+  const raw = typeof process !== "undefined" ? process.env?.SKILLS_ENABLED : undefined;
+  if (typeof raw !== "string" || !raw.trim()) return ["fact-checker"] as const;
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
 export const PIPELINE_CONFIG = {
   QUALITY_WARN_THRESHOLD: 4.0,
   /** Minimum original message length (characters) to run text scoring + translation batch. */
@@ -122,4 +128,13 @@ export const PIPELINE_CONFIG = {
   COMMENT_SUMMARY_MIN_TEXT_LENGTH: envCommentSummaryMinTextLength(),
   /** Re-summarize when live comment count exceeds stored count by at least this delta. */
   COMMENT_SUMMARY_RESUMMARIZE_DELTA: envCommentSummaryResummarizeDelta(),
+
+  /** Skills to run during enrichment. */
+  SKILLS_ENABLED: envSkillsEnabled(),
+  /** Minimum original text length (chars) to qualify for skill execution. */
+  SKILL_MIN_TEXT_LENGTH: envNumber("SKILL_MIN_TEXT_LENGTH", 250),
+  /** Minimum text_score to qualify for skill execution. */
+  SKILL_MIN_SCORE: envNumber("SKILL_MIN_SCORE", 4),
+  /** Max messages that get skill execution per pipeline run. */
+  SKILL_MAX_MESSAGES_PER_RUN: envNumber("SKILL_MAX_MESSAGES_PER_RUN", 10),
 } as const;

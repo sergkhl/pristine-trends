@@ -38,6 +38,9 @@ export type MessageRow = {
   comment_count: number | null;
   comment_summary: string | null;
   comment_summary_status: string | null;
+  comment_summary_updated_at: string | null;
+  link_extracted_text: string | null;
+  skill_results: Record<string, unknown> | null;
   published_at: string;
   channels: {
     avatar_url: string | null;
