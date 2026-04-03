@@ -20,3 +20,9 @@ export function telegramMessageUrl(channelId: string, externalId: string): strin
 
   return null;
 }
+
+/** Deep-link into the discussion thread for a channel post (`?comment=1` opens the first comment). */
+export function telegramDiscussionUrl(channelId: string, externalId: string): string | null {
+  const base = telegramMessageUrl(channelId, externalId);
+  return base ? `${base}?comment=1` : null;
+}

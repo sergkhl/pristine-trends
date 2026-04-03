@@ -19,7 +19,6 @@ export function fallbackInitialsFromChannelType(type: ChannelSourceType): string
 
 /** Entries Telegram cannot resolve (wrong username, deleted channel, etc.) are skipped; the rest of the pipeline still runs. */
 export const CHANNELS: ChannelConfig[] = [
-  { id: "@prompt_chat", type: "public", lang: "ru" },
   { id: "@prompt_design", type: "public", lang: "ru" },
   { id: "@denissexy", type: "public", lang: "ru" },
 ];
@@ -79,9 +78,11 @@ export const PIPELINE_CONFIG = {
   MIN_TEXT_SCORE_LENGTH: 100,
   BATCH_SIZE: 5,
   /** Preferred primary model (first in fallback chain). */
-  GEMMA_MODEL: "gemma-3-27b-it",
+  GEMMA_MODEL: "gemma-4-31b-it",
   /** Text LLM fallback order when a model returns HTTP 429 (rate limit). */
   GEMMA_FALLBACK_CHAIN: [
+    "gemma-4-31b-it",
+    "gemma-4-26b-a4b-it",
     "gemma-3-27b-it",
     "gemini-3.1-flash-lite-preview",
     "gemini-2.5-flash",
@@ -89,7 +90,7 @@ export const PIPELINE_CONFIG = {
     "gemma-3-12b-it",
   ] as const,
   /** Vision (inline image) calls: Gemma models only. */
-  GEMMA_VISION_CHAIN: ["gemma-3-27b-it", "gemma-3-12b-it"] as const,
+  GEMMA_VISION_CHAIN: ["gemma-4-31b-it", "gemma-4-26b-a4b-it", "gemma-3-27b-it", "gemma-3-12b-it"] as const,
   HF_WHISPER: "openai/whisper-large-v3",
   /** First run or missing cursor: fetch at least this many hours back. */
   DEFAULT_LOOKBACK_HOURS: envNumber("PIPELINE_DEFAULT_LOOKBACK_HOURS", 24),

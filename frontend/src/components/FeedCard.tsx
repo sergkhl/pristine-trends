@@ -13,7 +13,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { fallbackInitialsFromChannelType } from "../config/channels";
 import type { MessageRow } from "../hooks/useFeed";
-import { telegramMessageUrl } from "../lib/telegramMessageUrl";
+import { telegramDiscussionUrl, telegramMessageUrl } from "../lib/telegramMessageUrl";
 import { formatRelative } from "../util/formatRelative";
 import { LinkPreviewCard } from "./LinkPreviewCard";
 import { ScorePill } from "./ScorePill";
@@ -168,17 +168,34 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
           </ul>
         ) : null}
 
-        {msg.comment_summary?.trim() ? (
-          <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs">
-            <p className="m-0 mb-1 font-semibold text-muted-foreground">Discussion</p>
-            <p className="m-0 leading-relaxed">{msg.comment_summary}</p>
-            {typeof msg.comment_count === "number" && msg.comment_count > 0 ? (
-              <p className="m-0 mt-1 text-muted-foreground">
-                From {msg.comment_count} comments
-              </p>
-            ) : null}
-          </div>
-        ) : null}
+        {msg.comment_summary?.trim() ? (() => {
+          const discussionHref = telegramDiscussionUrl(msg.channel_id, msg.external_id);
+          const inner = (
+            <>
+              <p className="m-0 mb-1 font-semibold text-muted-foreground">Discussion</p>
+              <p className="m-0 leading-relaxed">{msg.comment_summary}</p>
+              {typeof msg.comment_count === "number" && msg.comment_count > 0 ? (
+                <p className="m-0 mt-1 text-muted-foreground">
+                  From {msg.comment_count} comments
+                </p>
+              ) : null}
+            </>
+          );
+          return discussionHref ? (
+            <a
+              href={discussionHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-inherit no-underline transition-colors hover:bg-muted"
+            >
+              {inner}
+            </a>
+          ) : (
+            <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs">
+              {inner}
+            </div>
+          );
+        })() : null}
 
         {msg.audio_transcript ? (
           <blockquote className="m-0 border-primary border-l-[3px] bg-muted px-3 py-2 text-xs">
