@@ -95,11 +95,8 @@ async function main(): Promise<void> {
           : Number(row.document_score);
     const docScoreNum = Number.isFinite(docRaw as number) ? (docRaw as number) : null;
 
-    const { link_summary, link_summary_status, link_score } = await linkSummaryForFirstUrl(
-      urls[0],
-      textScoreNum,
-      log
-    );
+    const { link_summary, link_summary_status, link_score, link_extracted_text } =
+      await linkSummaryForFirstUrl(urls[0], textScoreNum, log);
 
     const globalScore = computeGlobalScore(textScoreNum, link_score, docScoreNum);
     const belowThreshold =
@@ -109,6 +106,7 @@ async function main(): Promise<void> {
       link_summary,
       link_summary_status,
       link_score,
+      link_extracted_text,
       global_score: globalScore,
       quality_status: belowThreshold ? "low_quality" : "ok",
       link_urls: urls.length > 0 ? urls : row.link_urls,

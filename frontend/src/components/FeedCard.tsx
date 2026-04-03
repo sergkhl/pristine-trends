@@ -17,6 +17,7 @@ import { telegramDiscussionUrl, telegramMessageUrl } from "../lib/telegramMessag
 import { formatRelative } from "../util/formatRelative";
 import { LinkPreviewCard } from "./LinkPreviewCard";
 import { ScorePill } from "./ScorePill";
+import { SkillResultSection } from "./SkillResultSection";
 
 type CardLang = "original" | "english";
 
@@ -115,6 +116,8 @@ export function FeedCard({ msg }: { msg: MessageRow }) {
             <AlertDescription>{msg.text_score_reason ?? "—"}</AlertDescription>
           </Alert>
         ) : null}
+
+        <SkillResultSection skillResults={msg.skill_results} />
 
         <p className="m-0 whitespace-pre-wrap text-xs leading-relaxed">{bodyText}</p>
 

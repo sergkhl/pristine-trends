@@ -132,7 +132,7 @@ export const PIPELINE_CONFIG = {
   /** Skills to run during enrichment. */
   SKILLS_ENABLED: envSkillsEnabled(),
   /** Minimum original text length (chars) to qualify for skill execution. */
-  SKILL_MIN_TEXT_LENGTH: envNumber("SKILL_MIN_TEXT_LENGTH", 250),
+  SKILL_MIN_TEXT_LENGTH: envNumber("SKILL_MIN_TEXT_LENGTH", 200),
   /** Minimum text_score to qualify for skill execution. */
   SKILL_MIN_SCORE: envNumber("SKILL_MIN_SCORE", 4),
   /** Max messages that get skill execution per pipeline run. */
