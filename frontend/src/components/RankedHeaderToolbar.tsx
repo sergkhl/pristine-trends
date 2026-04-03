@@ -2,7 +2,9 @@
 
 import { useCallback, useMemo } from "react";
 import { Clock, SortDescending, Star } from "@phosphor-icons/react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { useRankedQueryString } from "@/hooks/useRankedQueryString";
+import { applyRankedFiltersToLocation } from "@/lib/rankedLocation";
 import {
   Select,
   SelectContent,
@@ -12,7 +14,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  buildRankedSearchParamsString,
   formatMinScoreParam,
   parseRankedSearchParams,
   RANKED_MIN_SCORE_MAX,
@@ -22,16 +23,6 @@ import {
   type RankedRangeKey,
   type RankedSortKey,
 } from "@/lib/rankedSearchParams";
-
-function replaceRankedQuery(
-  pathname: string,
-  router: ReturnType<typeof useRouter>,
-  next: { rangeKey: RankedRangeKey; sort: RankedSortKey; minScore: number }
-) {
-  const qs = buildRankedSearchParamsString(next);
-  const path = pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
-  router.replace(`${path}/?${qs}`, { scroll: false });
-}
 
 function isRankedRoute(pathname: string | null): boolean {
   const normalized = pathname?.replace(/\/$/, "") ?? "";
@@ -45,12 +36,9 @@ const MIN_SCORE_VALUES = Array.from(
 
 type RankedHeaderToolbarControlsProps = {
   parsed: ParsedRankedSearchParams;
-  pathname: string;
 };
 
-function RankedHeaderToolbarControls({ parsed, pathname }: RankedHeaderToolbarControlsProps) {
-  const router = useRouter();
-
+function RankedHeaderToolbarControls({ parsed }: RankedHeaderToolbarControlsProps) {
   const pushParams = useCallback(
     (partial: Partial<{ rangeKey: RankedRangeKey; sort: RankedSortKey; minScore: number }>) => {
       const next = {
@@ -58,9 +46,9 @@ function RankedHeaderToolbarControls({ parsed, pathname }: RankedHeaderToolbarCo
         sort: partial.sort ?? parsed.sort,
         minScore: partial.minScore ?? parsed.minScore,
       };
-      replaceRankedQuery(pathname, router, next);
+      applyRankedFiltersToLocation(next);
     },
-    [pathname, router, parsed.rangeKey, parsed.sort, parsed.minScore]
+    [parsed.rangeKey, parsed.sort, parsed.minScore]
   );
 
   return (
@@ -141,17 +129,16 @@ function RankedHeaderToolbarControls({ parsed, pathname }: RankedHeaderToolbarCo
   );
 }
 
-function RankedHeaderToolbarSynced({ pathname }: { pathname: string }) {
-  const searchParams = useSearchParams();
-  const spKey = searchParams.toString();
+function RankedHeaderToolbarSynced() {
+  const spKey = useRankedQueryString();
   const parsed = useMemo(() => parseRankedSearchParams(new URLSearchParams(spKey)), [spKey]);
 
-  return <RankedHeaderToolbarControls parsed={parsed} pathname={pathname} />;
+  return <RankedHeaderToolbarControls parsed={parsed} />;
 }
 
 /** Ranked URL filters; only renders on ranked (and home) routes. Use inside Suspense. */
 export function RankedHeaderToolbar() {
   const pathname = usePathname();
   if (!isRankedRoute(pathname)) return null;
-  return <RankedHeaderToolbarSynced pathname={pathname} />;
+  return <RankedHeaderToolbarSynced />;
 }
